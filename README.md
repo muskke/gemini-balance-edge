@@ -34,6 +34,23 @@ Gemini API 代理, 使用边缘函数把Gemini API免费中转到国内。还可
 3. cd 项目根目录
 4. vercel dev
 
+## 自动化部署 (CI/CD)
+
+本项目包含一个 GitHub Actions 工作流配置 (`.github/workflows/deploy.yml`)，可以在您将代码推送到 `main` 分支时自动将应用部署到 Vercel。
+
+要启用此功能，您需要在您的 GitHub 仓库中设置以下 Secrets：
+
+1.  **导航到仓库设置**: 在您的 GitHub 仓库页面，点击 "Settings" -> "Secrets and variables" -> "Actions"。
+2.  **添加以下 Secrets**:
+    *   `VERCEL_TOKEN`: 您的 Vercel 账户访问令牌。您可以从 Vercel 的 [Account Settings](https://vercel.com/account/tokens) 页面生成一个。
+    *   `VERCEL_ORG_ID`: 您的 Vercel 组织 ID。可以从 `.vercel/project.json` 文件中找到 (`orgId`)。
+    *   `VERCEL_PROJECT_ID`: 您的 Vercel 项目 ID。可以从 `.vercel/project.json` 文件中找到 (`projectId`)。
+    *   `GEMINI_API_KEY`: 您需要部署的 Gemini API 密钥，多个请用逗号隔开。
+    *   `GEMINI_BASE_URL` (可选): 代理的 Gemini API URL。
+    *   `GEMINI_API_VERSION` (可选): 代理的 Gemini API 版本。
+
+完成这些设置后，每当您向 `main` 分支推送提交，GitHub Actions 就会自动为您完成部署。
+
 ## API 说明
 
 

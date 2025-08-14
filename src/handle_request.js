@@ -109,9 +109,7 @@ export async function handleRequest(request) {
   }
 
   // Gemini 原生请求处理
-  const authHeader = newHeaders.get("x-goog-api-key");
-  const clientToken = authHeader?.split(" ")[1];
-
+  const clientToken = newHeaders.get("x-goog-api-key");
   if (serverAuthToken && clientToken === serverAuthToken) {
     if (!serverApiKey) {
       return new Response(JSON.stringify({ error: { message: 'Server authentication successful, but no GEMINI_API_KEY is configured on the server.' } }), { status: 500, headers: { 'Content-Type': 'application/json' } });

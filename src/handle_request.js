@@ -60,12 +60,12 @@ export async function handleRequest(request) {
     if (!serverApiKey) {
       return new Response(JSON.stringify({ error: { message: 'Server authentication successful, but no GEMINI_API_KEY is configured on the server.' } }), { status: 500, headers: { 'Content-Type': 'application/json' } });
     }
-    const selectedKey = selectApiKey(serverApiKey.split(',').map(k => k.trim()).filter(k => k));
+    selectedKey = selectApiKey(serverApiKey.split(',').map(k => k.trim()).filter(k => k));
     newHeaders.set('x-goog-api-key', selectedKey);
     console.debug("Using server-provided Gemini API Key for Gemini request.");
   } else if (clientToken) {
     console.info("客户端模式");
-    const selectedKey = selectApiKey(clientToken.split(',').map(k => k.trim()).filter(k => k));
+    selectedKey = selectApiKey(clientToken.split(',').map(k => k.trim()).filter(k => k));
     newHeaders.set('x-goog-api-key', selectedKey);
     console.debug("Using client-provided Gemini API Key for Gemini request.");
   } else {

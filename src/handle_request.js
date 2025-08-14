@@ -65,11 +65,34 @@ export async function handleRequest(request) {
   headers.set('x-goog-api-key', selectedKey);
 
   try {
+    let requestBody;
+    if (request.method === 'POST') {
+      try {
+        // 解析原始请求体
+        const originalBody = await request.json();
+        
+        // 创建一个只包含 Gemini API 官方支持字段的新请求体
+        const sanitizedBody = {
+          ...(originalBody.contents && { contents: originalBody.contents }),
+          ...(originalBody.generationConfig && { generationConfig: originalBody.generationConfig }),
+          ...(originalBody.safetySettings && { safetySettings: originalBody.safetySettings }),
+          ...(originalBody.tools && { tools: originalBody.tools }),
+        };
+        
+        requestBody = JSON.stringify(sanitizedBody);
+        
+        console.debug("Sanitized request body for Gemini API.");
+      } catch (e) {
+        console.error("Could not parse request body:", e);
+        return new Response(JSON.stringify({ error: { message: 'Invalid JSON in request body.' } }), { status: 400, headers: { 'Content-Type': 'application/json' } });
+      }
+    }
+
     console.info("Request Sending to Gemini");
     const response = await fetch(targetUrl, {
       method: request.method,
       headers: headers,
-      body: request.body
+      body: requestBody // 使用净化后的请求体
     });
 
     console.info("Call Gemini Success");

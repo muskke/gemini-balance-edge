@@ -44,8 +44,20 @@ export async function handleVerification(request) {
 
     const stream = new ReadableStream({
       async start(controller) {
-        const verificationPromises = keys.map(key => verifyKey(key, controller));
+        // 并行发起所有校验请求，但不等待它们全部完成
+        const verificationPromises = keys.map(key =>
+          verifyKey(key, controller).catch(e => {
+            // 确保即使单个 promise 失败，也不会中断整个流
+            console.error(`Error verifying key: ${key}`, e);
+            const errorResult = { key: `${key.slice(0, 7)}......${key.slice(-7)}`, status: 'ERROR', error: 'Stream failed during verification.' };
+            controller.enqueue(new TextEncoder().encode('data: ' + JSON.stringify(errorResult) + '\n\n'));
+          })
+        );
+        
+        // 等待所有请求都已发出并处理完毕
         await Promise.all(verificationPromises);
+        
+        // 所有 key 都处理完毕后，关闭流
         controller.close();
       }
     });

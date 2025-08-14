@@ -30,7 +30,7 @@ export async function handleRequest(request) {
     });
   }
 
-  if (pathname === '/favicon.ico') {
+  if (pathname === '/favicon.ico' || pathname === '/favicon.png') {
     return new Response(null, { status: 204 });
   }
 

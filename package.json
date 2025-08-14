@@ -1,0 +1,7 @@
+{
+  "type": "module",
+  "dependencies": {
+    "@vercel/kv": "^3.0.0",
+    "redis": "^5.8.1"
+  }
+}

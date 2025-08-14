@@ -24,6 +24,7 @@ export async function handleRequest(request) {
 
   // 克隆请求头，以便修改
   const newHeaders = new Headers(request.headers);
+  const selectedKey = '';
 
   // OpenAI 格式请求处理
   if (url.pathname.endsWith("/chat/completions") || url.pathname.endsWith("/completions") || url.pathname.endsWith("/embeddings") || url.pathname.endsWith("/models")) {
@@ -32,13 +33,18 @@ export async function handleRequest(request) {
     const clientToken = authHeader?.split(" ")[1];
 
     if (serverAuthToken && clientToken === serverAuthToken) {
+      console.info("服务端模式");
       if (!serverApiKey) {
         return new Response(JSON.stringify({ error: { message: 'Server authentication successful, but no GEMINI_API_KEY is configured on the server.' } }), { status: 500, headers: { 'Content-Type': 'application/json' } });
       }
       const selectedKey = selectApiKey(serverApiKey.split(',').map(k => k.trim()).filter(k => k));
-      newHeaders.set('Authorization', `Bearer ${selectedKey}`);
-      console.debug("Using server-provided Gemini API Key for OpenAI request.");
+      console.info("Using server-provided Gemini API Key for OpenAI request.");
+    } else {
+      console.info("客户端模式");
+      selectedKey = selectApiKey(clientToken.split(',').map(k => k.trim()).filter(k => k));
+      console.info("Using client-provided Gemini API Key for OpenAI request.");
     }
+    newHeaders.set("Authorization", `Bearer ${selectedKey}`);
     
     const newRequest = new Request(request, { headers: newHeaders });
     console.info("newHeaders:" + newHeaders);
@@ -50,6 +56,7 @@ export async function handleRequest(request) {
   // Gemini 原生格式请求处理
   const clientToken = newHeaders.get('x-goog-api-key');
   if (serverAuthToken && clientToken === serverAuthToken) {
+    console.info("服务端模式");
     if (!serverApiKey) {
       return new Response(JSON.stringify({ error: { message: 'Server authentication successful, but no GEMINI_API_KEY is configured on the server.' } }), { status: 500, headers: { 'Content-Type': 'application/json' } });
     }
@@ -57,8 +64,10 @@ export async function handleRequest(request) {
     newHeaders.set('x-goog-api-key', selectedKey);
     console.debug("Using server-provided Gemini API Key for Gemini request.");
   } else if (clientToken) {
+    console.info("客户端模式");
     const selectedKey = selectApiKey(clientToken.split(',').map(k => k.trim()).filter(k => k));
     newHeaders.set('x-goog-api-key', selectedKey);
+    console.debug("Using client-provided Gemini API Key for Gemini request.");
   } else {
      return new Response(JSON.stringify({ error: { message: 'Authentication failed. Please provide a valid Gemini API key in the `x-goog-api-key` header.' } }), { status: 401, headers: { 'Content-Type': 'application/json' } });
   }
@@ -85,7 +94,7 @@ export async function handleRequest(request) {
         return new Response(JSON.stringify({ error: { message: 'Invalid JSON in request body.' } }), { status: 400, headers: { 'Content-Type': 'application/json' } });
       }
     }
-    console.log("API Key:", newHeaders.get('x-goog-api-key'));
+    console.info("API Key:", newHeaders.get('x-goog-api-key'));
 
     console.info("Request Sending to Gemini");
     const response = await fetch(targetUrl, {

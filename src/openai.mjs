@@ -20,7 +20,7 @@ export default {
     if (!apiKey) {
       return errHandler(new HttpError('No valid API keys found after processing.', 500));
     }
-    console.log('API Key:', apiKey);
+    console.info('API Key:', apiKey);
 
     try {
       const assert = (success) => {
@@ -183,7 +183,7 @@ async function handleCompletions (req, apiKey) {
       body.tools = body.tools || [];
       body.tools.push({googleSearch: {}});
   }
-  console.log(body.tools)
+  console.info(body.tools)
   const TASK = req.stream ? "streamGenerateContent" : "generateContent";
   let url = `${BASE_URL}/${API_VERSION}/models/${model}:${TASK}`;
   if (req.stream) { url += "?alt=sse"; }
@@ -569,11 +569,11 @@ const transformUsage = (data) => ({
 const checkPromptBlock = (choices, promptFeedback, key) => {
   if (choices.length) { return; }
   if (promptFeedback?.blockReason) {
-    console.log("Prompt block reason:", promptFeedback.blockReason);
+    console.info("Prompt block reason:", promptFeedback.blockReason);
     if (promptFeedback.blockReason === "SAFETY") {
       promptFeedback.safetyRatings
         .filter(r => r.blocked)
-        .forEach(r => console.log(r));
+        .forEach(r => console.info(r));
     }
     choices.push({
       index: 0,

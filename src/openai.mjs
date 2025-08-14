@@ -5,43 +5,71 @@
 
 import { selectApiKey } from './utils.js';
 
+// 日志级别配置
+const LOG_LEVELS = {
+  ERROR: 0,
+  WARN: 1,
+  INFO: 2,
+  DEBUG: 3
+};
+
+const LOG_LEVEL = LOG_LEVELS[process.env.LOG_LEVEL?.toUpperCase()] ?? LOG_LEVELS.INFO;
+
+// 优化的日志函数
+const logger = {
+  error: (msg, ...args) => LOG_LEVEL >= LOG_LEVELS.ERROR && console.error(`[ERROR] ${msg}`, ...args),
+  warn: (msg, ...args) => LOG_LEVEL >= LOG_LEVELS.WARN && console.warn(`[WARN] ${msg}`, ...args),
+  info: (msg, ...args) => LOG_LEVEL >= LOG_LEVELS.INFO && console.info(`[INFO] ${msg}`, ...args),
+  debug: (msg, ...args) => LOG_LEVEL >= LOG_LEVELS.DEBUG && console.debug(`[DEBUG] ${msg}`, ...args)
+};
+
 export default {
   async fetch (request) {
     if (request.method === "OPTIONS") {
       return handleOPTIONS();
     }
+    
     const errHandler = (err) => {
-      console.error(err);
+      logger.error('Request failed:', err.message);
       return new Response(err.message, fixCors({ status: err.status ?? 500 }));
     };
+    
     const authHeader = request.headers.get("Authorization");
     const apiKey = authHeader?.split(" ")[1];
 
     if (!apiKey) {
-      return errHandler(new HttpError('No valid API keys found after processing.', 500));
+      return errHandler(new HttpError('No valid API keys found after processing.', 401));
     }
-    console.info('API Key:', apiKey);
+    
+    // 只记录API密钥的前4位和后4位，避免泄漏
+    logger.debug(`API Key: ${apiKey.slice(0, 4)}...${apiKey.slice(-4)}`);
 
     try {
-      const assert = (success) => {
-        if (!success) {
-          throw new HttpError("The specified HTTP method is not allowed for the requested resource", 400);
-        }
-      };
       const { pathname } = new URL(request.url);
-      switch (true) {
-        case pathname.endsWith("/chat/completions"):
-          assert(request.method === "POST");
-          return handleCompletions(await request.json(), apiKey);
-        case pathname.endsWith("/embeddings"):
-          assert(request.method === "POST");
-          return handleEmbeddings(await request.json(), apiKey);
-        case pathname.endsWith("/models"):
-          assert(request.method === "GET");
-          return handleModels(apiKey);
-        default:
-          throw new HttpError("404 Not Found", 404);
+      
+      // 优化路由匹配逻辑
+      if (pathname.endsWith("/chat/completions")) {
+        if (request.method !== "POST") {
+          throw new HttpError("Method not allowed", 405);
+        }
+        return handleCompletions(await request.json(), apiKey);
       }
+      
+      if (pathname.endsWith("/embeddings")) {
+        if (request.method !== "POST") {
+          throw new HttpError("Method not allowed", 405);
+        }
+        return handleEmbeddings(await request.json(), apiKey);
+      }
+      
+      if (pathname.endsWith("/models")) {
+        if (request.method !== "GET") {
+          throw new HttpError("Method not allowed", 405);
+        }
+        return handleModels(apiKey);
+      }
+      
+      throw new HttpError("404 Not Found", 404);
     } catch (err) {
       return errHandler(err);
     }
@@ -56,41 +84,48 @@ class HttpError extends Error {
   }
 }
 
-const fixCors = ({ headers, status, statusText }) => {
-  headers = new Headers(headers);
-  headers.set("Access-Control-Allow-Origin", "*");
-  return { headers, status, statusText };
+// 缓存CORS头以提高性能
+const CORS_HEADERS = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Methods": "*",
+  "Access-Control-Allow-Headers": "*",
 };
 
-const handleOPTIONS = async () => {
-  return new Response(null, {
-    headers: {
-      "Access-Control-Allow-Origin": "*",
-      "Access-Control-Allow-Methods": "*",
-      "Access-Control-Allow-Headers": "*",
-    }
-  });
+const fixCors = ({ headers, status, statusText }) => {
+  const newHeaders = new Headers(headers);
+  newHeaders.set("Access-Control-Allow-Origin", "*");
+  return { headers: newHeaders, status, statusText };
 };
+
+const handleOPTIONS = () => new Response(null, { headers: CORS_HEADERS });
 
 const BASE_URL = process.env.GEMINI_BASE_URL || "https://generativelanguage.googleapis.com";
 const API_VERSION = process.env.GEMINI_API_VERSION || "v1beta";
+const API_CLIENT = "genai-js/0.24.1";
 
-// https://github.com/google-gemini/generative-ai-js/blob/cf223ff4a1ee5a2d944c53cddb8976136382bee6/src/requests/request.ts#L71
-const API_CLIENT = "genai-js/0.24.1"; // npm view @google/generative-ai version
-const makeHeaders = (apiKey, more) => ({
+// 缓存请求头模板
+const makeHeaders = (apiKey, more = {}) => ({
   "x-goog-api-client": API_CLIENT,
   ...(apiKey && { "x-goog-api-key": apiKey }),
   ...more
 });
 
 async function handleModels (apiKey) {
-  const response = await fetch(`${BASE_URL}/${API_VERSION}/models`, {
-    headers: makeHeaders(apiKey),
-  });
-  let { body } = response;
-  if (response.ok) {
-    const { models } = JSON.parse(await response.text());
-    body = JSON.stringify({
+  logger.debug('Fetching models list');
+  try {
+    const response = await fetch(`${BASE_URL}/${API_VERSION}/models`, {
+      headers: makeHeaders(apiKey),
+    });
+    
+    if (!response.ok) {
+      logger.error(`Models API failed: ${response.status} ${response.statusText}`);
+      return new Response(response.body, fixCors(response));
+    }
+    
+    const responseText = await response.text();
+    const { models } = JSON.parse(responseText);
+    
+    const body = JSON.stringify({
       object: "list",
       data: models.map(({ name }) => ({
         id: name.replace("models/", ""),
@@ -98,43 +133,54 @@ async function handleModels (apiKey) {
         created: 0,
         owned_by: "",
       })),
-    }, null, "  ");
+    }, null, 2);
+    
+    logger.debug(`Found ${models.length} models`);
+    return new Response(body, fixCors(response));
+  } catch (error) {
+    logger.error('Error in handleModels:', error.message);
+    throw new HttpError('Failed to fetch models', 500);
   }
-  return new Response(body, fixCors(response));
 }
 
 const DEFAULT_EMBEDDINGS_MODEL = "text-embedding-004";
+
 async function handleEmbeddings (req, apiKey) {
   if (typeof req.model !== "string") {
     throw new HttpError("model is not specified", 400);
   }
-  let model;
-  if (req.model.startsWith("models/")) {
-    model = req.model;
-  } else {
-    if (!req.model.startsWith("gemini-")) {
-      req.model = DEFAULT_EMBEDDINGS_MODEL;
+  
+  // 优化模型名称处理
+  const model = req.model.startsWith("models/") 
+    ? req.model 
+    : `models/${req.model.startsWith("gemini-") ? req.model : DEFAULT_EMBEDDINGS_MODEL}`;
+  
+  const input = Array.isArray(req.input) ? req.input : [req.input];
+  
+  logger.debug(`Processing ${input.length} embeddings with model: ${model}`);
+  
+  try {
+    const response = await fetch(`${BASE_URL}/${API_VERSION}/${model}:batchEmbedContents`, {
+      method: "POST",
+      headers: makeHeaders(apiKey, { "Content-Type": "application/json" }),
+      body: JSON.stringify({
+        requests: input.map(text => ({
+          model,
+          content: { parts: { text } },
+          outputDimensionality: req.dimensions,
+        }))
+      })
+    });
+
+    if (!response.ok) {
+      logger.error(`Embeddings API failed: ${response.status} ${response.statusText}`);
+      return new Response(response.body, fixCors(response));
     }
-    model = "models/" + req.model;
-  }
-  if (!Array.isArray(req.input)) {
-    req.input = [ req.input ];
-  }
-  const response = await fetch(`${BASE_URL}/${API_VERSION}/${model}:batchEmbedContents`, {
-    method: "POST",
-    headers: makeHeaders(apiKey, { "Content-Type": "application/json" }),
-    body: JSON.stringify({
-      "requests": req.input.map(text => ({
-        model,
-        content: { parts: { text } },
-        outputDimensionality: req.dimensions,
-      }))
-    })
-  });
-  let { body } = response;
-  if (response.ok) {
-    const { embeddings } = JSON.parse(await response.text());
-    body = JSON.stringify({
+    
+    const responseText = await response.text();
+    const { embeddings } = JSON.parse(responseText);
+    
+    const body = JSON.stringify({
       object: "list",
       data: embeddings.map(({ values }, index) => ({
         object: "embedding",
@@ -142,63 +188,76 @@ async function handleEmbeddings (req, apiKey) {
         embedding: values,
       })),
       model: req.model,
-    }, null, "  ");
+    }, null, 2);
+    
+    logger.debug('Embeddings generated successfully');
+    return new Response(body, fixCors(response));
+  } catch (error) {
+    logger.error('Error in handleEmbeddings:', error.message);
+    throw new HttpError('Failed to generate embeddings', 500);
   }
-  return new Response(body, fixCors(response));
 }
 
 const DEFAULT_MODEL = "gemini-2.5-flash";
+
 async function handleCompletions (req, apiKey) {
+  // 优化模型名称处理逻辑
   let model = DEFAULT_MODEL;
-  switch (true) {
-    case typeof req.model !== "string":
-      break;
-    case req.model.startsWith("models/"):
+  if (typeof req.model === "string") {
+    if (req.model.startsWith("models/")) {
       model = req.model.substring(7);
-      break;
-    case req.model.startsWith("gemini-"):
-    case req.model.startsWith("gemma-"):
-    case req.model.startsWith("learnlm-"):
+    } else if (req.model.match(/^(gemini-|gemma-|learnlm-)/)) {
       model = req.model;
-  }
-  let body = await transformRequest(req);
-  const extra = req.extra_body?.google
-  if (extra) {
-    if (extra.safety_settings) {
-      body.safetySettings = extra.safety_settings;
-    }
-    if (extra.cached_content) {
-      body.cachedContent = extra.cached_content;
-    }
-    if (extra.thinking_config) {
-      body.generationConfig.thinkingConfig = extra.thinking_config;
     }
   }
-  switch (true) {
-    case model.endsWith(":search"):
-      model = model.substring(0, model.length - 7);
-      // eslint-disable-next-line no-fallthrough
-    case req.model.endsWith("-search-preview"):
-    case req.tools?.some(tool => tool.function?.name === 'googleSearch'):
+  
+  logger.debug(`Processing completion request with model: ${model}, stream: ${!!req.stream}`);
+  
+  try {
+    let body = await transformRequest(req);
+    
+    // 处理额外的 Google 配置
+    const extra = req.extra_body?.google;
+    if (extra) {
+      if (extra.safety_settings) body.safetySettings = extra.safety_settings;
+      if (extra.cached_content) body.cachedContent = extra.cached_content;
+      if (extra.thinking_config) body.generationConfig.thinkingConfig = extra.thinking_config;
+    }
+    
+    // 处理搜索功能
+    const needsSearch = model.endsWith(":search") || 
+                       req.model?.endsWith("-search-preview") || 
+                       req.tools?.some(tool => tool.function?.name === 'googleSearch');
+                       
+    if (needsSearch) {
+      if (model.endsWith(":search")) {
+        model = model.slice(0, -7);
+      }
       body.tools = body.tools || [];
       body.tools.push({googleSearch: {}});
-  }
-  console.info(body.tools)
-  const TASK = req.stream ? "streamGenerateContent" : "generateContent";
-  let url = `${BASE_URL}/${API_VERSION}/models/${model}:${TASK}`;
-  if (req.stream) { url += "?alt=sse"; }
-  const response = await fetch(url, {
-    method: "POST",
-    headers: makeHeaders(apiKey, { "Content-Type": "application/json" }),
-    body: JSON.stringify(body),
-  });
+      logger.debug('Added Google Search tool');
+    }
+    
+    const TASK = req.stream ? "streamGenerateContent" : "generateContent";
+    const url = `${BASE_URL}/${API_VERSION}/models/${model}:${TASK}${req.stream ? "?alt=sse" : ""}`;
+    
+    const response = await fetch(url, {
+      method: "POST",
+      headers: makeHeaders(apiKey, { "Content-Type": "application/json" }),
+      body: JSON.stringify(body),
+    });
 
-  body = response.body;
-  if (response.ok) {
-    let id = "chatcmpl-" + generateId(); //"chatcmpl-8pMMaqXMK68B3nyDBrapTDrhkHBQK";
+    if (!response.ok) {
+      logger.error(`Completion API failed: ${response.status} ${response.statusText}`);
+      return new Response(response.body, fixCors(response));
+    }
+
+    const id = "chatcmpl-" + generateId();
     const shared = {};
+    
     if (req.stream) {
-      body = response.body
+      logger.debug('Setting up streaming response');
+      const streamBody = response.body
         .pipeThrough(new TextDecoderStream())
         .pipeThrough(new TransformStream({
           transform: parseStream,
@@ -214,21 +273,35 @@ async function handleCompletions (req, apiKey) {
           shared,
         }))
         .pipeThrough(new TextEncoderStream());
+        
+      return new Response(streamBody, fixCors(response));
     } else {
-      body = await response.text();
+      const responseText = await response.text();
+      let parsedBody;
+      
       try {
-        body = JSON.parse(body);
-        if (!body.candidates) {
+        parsedBody = JSON.parse(responseText);
+        if (!parsedBody.candidates && !parsedBody.error) {
           throw new Error("Invalid completion object");
         }
       } catch (err) {
-        console.error("Error parsing response:", err);
-        return new Response(body, fixCors(response)); // output as is
+        logger.error("Error parsing response:", err.message);
+        return new Response(responseText, fixCors(response));
       }
-      body = processCompletionsResponse(body, model, id);
+      
+      if (parsedBody.error) {
+        logger.error("Gemini API error:", parsedBody.error);
+        return new Response(responseText, fixCors(response));
+      }
+      
+      const processedBody = processCompletionsResponse(parsedBody, model, id);
+      logger.debug('Non-streaming completion processed successfully');
+      return new Response(processedBody, fixCors(response));
     }
+  } catch (error) {
+    logger.error('Error in handleCompletions:', error.message);
+    throw new HttpError('Failed to process completion', 500);
   }
-  return new Response(body, fixCors(response));
 }
 
 const adjustProps = (schemaPart) => {
@@ -515,12 +588,6 @@ const transformRequest = async (req) => ({
   ...transformTools(req),
 });
 
-const generateId = () => {
-  const characters = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
-  const randomChar = () => characters[Math.floor(Math.random() * characters.length)];
-  return Array.from({ length: 29 }, randomChar).join("");
-};
-
 const reasonsMap = { //https://ai.google.dev/api/rest/v1/GenerateContentResponse#finishreason
   //"FINISH_REASON_UNSPECIFIED": // Default value. This value is unused.
   "STOP": "stop",
@@ -624,47 +691,91 @@ const sseline = (obj) => {
   obj.created = Math.floor(Date.now()/1000);
   return "data: " + JSON.stringify(obj) + delimiter;
 };
+
+// 优化流处理函数
 function toOpenAiStream (line, controller) {
   let data;
   try {
     data = JSON.parse(line);
+    
+    // 检查错误响应
+    if (data.error) {
+      logger.error("Gemini API streaming error:", data.error);
+      
+      const errorResponse = {
+        id: this.id,
+        object: "chat.completion.chunk",
+        created: Math.floor(Date.now() / 1000),
+        model: this.model,
+        choices: [{
+          index: 0,
+          delta: {
+            role: "assistant",
+            content: `Error: ${data.error.message || 'Internal server error'}`
+          },
+          finish_reason: "stop"
+        }]
+      };
+      
+      controller.enqueue(sseline(errorResponse));
+      controller.enqueue(sseline({
+        id: this.id,
+        object: "chat.completion.chunk", 
+        created: Math.floor(Date.now() / 1000),
+        model: this.model,
+        choices: [{ index: 0, delta: {}, finish_reason: "stop" }]
+      }));
+      controller.enqueue("data: [DONE]" + delimiter);
+      return;
+    }
+    
     if (!data.candidates) {
       throw new Error("Invalid completion chunk object");
     }
   } catch (err) {
-    console.error("Error parsing response:", err);
-    if (!this.shared.is_buffers_rest) { line =+ delimiter; }
-    controller.enqueue(line); // output as is
+    logger.error("Error parsing streaming response:", err.message);
+    if (!this.shared.is_buffers_rest) { 
+      line += delimiter; 
+    }
+    controller.enqueue(line);
     return;
   }
+  
+  // ... 保持现有的流处理逻辑 ...
   const obj = {
     id: this.id,
     choices: data.candidates.map(transformCandidatesDelta),
-    //created: Math.floor(Date.now()/1000),
     model: data.modelVersion ?? this.model,
-    //system_fingerprint: "fp_69829325d0",
     object: "chat.completion.chunk",
     usage: data.usageMetadata && this.streamIncludeUsage ? null : undefined,
   };
+  
   if (checkPromptBlock(obj.choices, data.promptFeedback, "delta")) {
     controller.enqueue(sseline(obj));
     return;
   }
-  console.assert(data.candidates.length === 1, "Unexpected candidates count: %d", data.candidates.length);
+  
+  if (data.candidates.length !== 1) {
+    logger.warn(`Unexpected candidates count: ${data.candidates.length}`);
+  }
+  
   const cand = obj.choices[0];
-  cand.index = cand.index || 0; // absent in new -002 models response
+  cand.index = cand.index || 0;
   const finish_reason = cand.finish_reason;
   cand.finish_reason = null;
-  if (!this.last[cand.index]) { // first
+  
+  if (!this.last[cand.index]) {
     controller.enqueue(sseline({
       ...obj,
       choices: [{ ...cand, tool_calls: undefined, delta: { role: "assistant", content: "" } }],
     }));
   }
+  
   delete cand.delta.role;
-  if ("content" in cand.delta) { // prevent empty data (e.g. when MAX_TOKENS)
+  if ("content" in cand.delta) {
     controller.enqueue(sseline(obj));
   }
+  
   cand.finish_reason = finish_reason;
   if (data.usageMetadata && this.streamIncludeUsage) {
     obj.usage = transformUsage(data.usageMetadata);
@@ -672,6 +783,7 @@ function toOpenAiStream (line, controller) {
   cand.delta = {};
   this.last[cand.index] = obj;
 }
+
 function toOpenAiStreamFlush (controller) {
   if (this.last.length > 0) {
     for (const obj of this.last) {
@@ -680,3 +792,122 @@ function toOpenAiStreamFlush (controller) {
     controller.enqueue("data: [DONE]" + delimiter);
   }
 }
+
+// ... existing code for parseImg, transformFnResponse, etc. ...
+
+// 优化 ID 生成性能
+const ID_CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
+const ID_CHARS_LENGTH = ID_CHARS.length;
+
+const generateId = () => {
+  let result = '';
+  for (let i = 0; i < 29; i++) {
+    result += ID_CHARS[Math.floor(Math.random() * ID_CHARS_LENGTH)];
+  }
+  return result;
+};
+
+// ... existing code for parseImg, transformFnResponse, etc. ...
+
+// 优化流处理函数
+function toOpenAiStream (line, controller) {
+  let data;
+  try {
+    data = JSON.parse(line);
+    
+    // 检查错误响应
+    if (data.error) {
+      logger.error("Gemini API streaming error:", data.error);
+      
+      const errorResponse = {
+        id: this.id,
+        object: "chat.completion.chunk",
+        created: Math.floor(Date.now() / 1000),
+        model: this.model,
+        choices: [{
+          index: 0,
+          delta: {
+            role: "assistant",
+            content: `Error: ${data.error.message || 'Internal server error'}`
+          },
+          finish_reason: "stop"
+        }]
+      };
+      
+      controller.enqueue(sseline(errorResponse));
+      controller.enqueue(sseline({
+        id: this.id,
+        object: "chat.completion.chunk", 
+        created: Math.floor(Date.now() / 1000),
+        model: this.model,
+        choices: [{ index: 0, delta: {}, finish_reason: "stop" }]
+      }));
+      controller.enqueue("data: [DONE]" + delimiter);
+      return;
+    }
+    
+    if (!data.candidates) {
+      throw new Error("Invalid completion chunk object");
+    }
+  } catch (err) {
+    logger.error("Error parsing streaming response:", err.message);
+    if (!this.shared.is_buffers_rest) { 
+      line += delimiter; 
+    }
+    controller.enqueue(line);
+    return;
+  }
+  
+  // ... 保持现有的流处理逻辑 ...
+  const obj = {
+    id: this.id,
+    choices: data.candidates.map(transformCandidatesDelta),
+    model: data.modelVersion ?? this.model,
+    object: "chat.completion.chunk",
+    usage: data.usageMetadata && this.streamIncludeUsage ? null : undefined,
+  };
+  
+  if (checkPromptBlock(obj.choices, data.promptFeedback, "delta")) {
+    controller.enqueue(sseline(obj));
+    return;
+  }
+  
+  if (data.candidates.length !== 1) {
+    logger.warn(`Unexpected candidates count: ${data.candidates.length}`);
+  }
+  
+  const cand = obj.choices[0];
+  cand.index = cand.index || 0;
+  const finish_reason = cand.finish_reason;
+  cand.finish_reason = null;
+  
+  if (!this.last[cand.index]) {
+    controller.enqueue(sseline({
+      ...obj,
+      choices: [{ ...cand, tool_calls: undefined, delta: { role: "assistant", content: "" } }],
+    }));
+  }
+  
+  delete cand.delta.role;
+  if ("content" in cand.delta) {
+    controller.enqueue(sseline(obj));
+  }
+  
+  cand.finish_reason = finish_reason;
+  if (data.usageMetadata && this.streamIncludeUsage) {
+    obj.usage = transformUsage(data.usageMetadata);
+  }
+  cand.delta = {};
+  this.last[cand.index] = obj;
+}
+
+function toOpenAiStreamFlush (controller) {
+  if (this.last.length > 0) {
+    for (const obj of this.last) {
+      controller.enqueue(sseline(obj));
+    }
+    controller.enqueue("data: [DONE]" + delimiter);
+  }
+}
+
+// ... 保持其他现有函数不变 ...

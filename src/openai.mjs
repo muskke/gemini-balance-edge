@@ -15,28 +15,7 @@ export default {
       return new Response(err.message, fixCors({ status: err.status ?? 500 }));
     };
     const authHeader = request.headers.get("Authorization");
-    const clientToken = authHeader?.split(" ")[1];
-
-    const serverAuthToken = process.env.AUTH_TOKEN;
-    const serverApiKey = process.env.GEMINI_API_KEY;
-    
-    let finalApiKey = '';
-
-    if (serverAuthToken && clientToken === serverAuthToken) {
-      if (!serverApiKey) {
-        return errHandler(new HttpError('Server authentication successful, but no GEMINI_API_KEY is configured on the server.', 500));
-      }
-      finalApiKey = serverApiKey;
-      console.debug("Using server-provided Gemini API Key via Auth Token for OpenAI request.");
-    } else if (clientToken) {
-      finalApiKey = clientToken;
-      console.debug("Using client-provided Gemini API Key for OpenAI request.");
-    } else {
-      return errHandler(new HttpError('Authentication failed. Please provide a valid Gemini API key or authentication token in the `Authorization` header.', 401));
-    }
-
-    const apiKeys = finalApiKey.split(',').map(k => k.trim()).filter(k => k);
-    let apiKey = selectApiKey(apiKeys);
+    const apiKey = authHeader?.split(" ")[1];
 
     if (!apiKey) {
       return errHandler(new HttpError('No valid API keys found after processing.', 500));

@@ -30,6 +30,10 @@ export async function handleRequest(request) {
       headers: { 'Content-Type': 'text/html' }
     });
   }
+  
+  if (pathname === '/favicon.ico') {
+    return new Response(null, { status: 204 });
+  }
 
   if (pathname === '/verify' && request.method === 'POST') {
     return handleVerification(request);

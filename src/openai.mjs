@@ -15,15 +15,37 @@ export default {
       return new Response(err.message, fixCors({ status: err.status ?? 500 }));
     };
     try {
-      const auth = request.headers.get("Authorization");
-      let apiKey = auth?.split(" ")[1];
-      if (apiKey && apiKey.includes(',')) {
-        const apiKeys = apiKey.split(',').map(k => k.trim()).filter(k => k);
-        apiKey = selectApiKey(apiKeys);
-        if (apiKey) {
-          console.log(`OpenAI Selected API Key: ${apiKey.slice(0, 7)}...`);
+      const authHeader = request.headers.get("Authorization");
+      const clientToken = authHeader?.split(" ")[1];
+
+      const serverAuthToken = process.env.AUTH_TOKEN;
+      const serverApiKey = process.env.GEMINI_API_KEY;
+      
+      let finalApiKey = '';
+
+      if (serverAuthToken && clientToken === serverAuthToken) {
+        // 模式1：客户端提供正确的 Auth Token，使用服务端的 Gemini Key
+        if (!serverApiKey) {
+          throw new HttpError('Server authentication successful, but no GEMINI_API_KEY is configured on the server.', 500);
         }
+        finalApiKey = serverApiKey;
+        console.debug("Using server-provided Gemini API Key via Auth Token for OpenAI request.");
+      } else if (clientToken) {
+        // 模式2：客户端提供的 token 被视为 Gemini Key
+        finalApiKey = clientToken;
+        console.debug("Using client-provided Gemini API Key for OpenAI request.");
+      } else {
+        // 凭证无效或未提供
+        throw new HttpError('Authentication failed. Please provide a valid Gemini API key or authentication token in the `Authorization` header.', 401);
       }
+
+      const apiKeys = finalApiKey.split(',').map(k => k.trim()).filter(k => k);
+      let apiKey = selectApiKey(apiKeys);
+
+      if (!apiKey) {
+        throw new HttpError('No valid API keys found after processing.', 500);
+      }
+
       const assert = (success) => {
         if (!success) {
           throw new HttpError("The specified HTTP method is not allowed for the requested resource", 400);

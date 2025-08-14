@@ -1,5 +1,6 @@
 import { handleVerification } from './verify_keys.js';
 import openai from './openai.mjs';
+import { selectApiKey } from './utils.js';
 
 export async function handleRequest(request) {
 
@@ -30,9 +31,9 @@ export async function handleRequest(request) {
     for (const [key, value] of request.headers.entries()) {
       if (key.trim().toLowerCase() === 'x-goog-api-key') {
         const apiKeys = value.split(',').map(k => k.trim()).filter(k => k);
-        if (apiKeys.length > 0) {
-          const selectedKey = apiKeys[Math.floor(Math.random() * apiKeys.length)];
-          console.debug(`Gemini Selected API Key: ${selectedKey}`);
+        const selectedKey = selectApiKey(apiKeys);
+        if (selectedKey) {
+          console.debug(`Gemini Selected API Key: ${selectedKey.slice(0, 7)}...`);
           headers.set('x-goog-api-key', selectedKey);
         }
       } else {
@@ -72,10 +73,10 @@ export async function handleRequest(request) {
     });
 
   } catch (error) {
-   console.error('Failed to fetch:', error);
+    console.error('Failed to fetch:', error);
    return new Response('Internal Server Error\n' + error?.stack, {
-    status: 500,
+      status: 500,
     headers: { 'Content-Type': 'text/plain' }
-   });
-}
+    });
+  }
 };

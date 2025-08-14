@@ -4,6 +4,7 @@
 
 
 import { Buffer } from "node:buffer";
+import { selectApiKey } from './utils.js';
 
 export default {
   async fetch (request) {
@@ -19,8 +20,10 @@ export default {
       let apiKey = auth?.split(" ")[1];
       if (apiKey && apiKey.includes(',')) {
         const apiKeys = apiKey.split(',').map(k => k.trim()).filter(k => k);
-        apiKey = apiKeys[Math.floor(Math.random() * apiKeys.length)];
-        console.log(`OpenAI Selected API Key: ${apiKey}`);
+        apiKey = selectApiKey(apiKeys);
+        if (apiKey) {
+          console.log(`OpenAI Selected API Key: ${apiKey.slice(0, 7)}...`);
+        }
       }
       const assert = (success) => {
         if (!success) {

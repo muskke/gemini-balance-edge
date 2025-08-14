@@ -3,7 +3,6 @@
 //MIT License : https://github.com/PublicAffairs/openai-gemini/blob/main/LICENSE
 
 
-import { Buffer } from "node:buffer";
 import { selectApiKey } from './utils.js';
 
 export default {
@@ -327,7 +326,10 @@ const parseImg = async (url) => {
         throw new Error(`${response.status} ${response.statusText} (${url})`);
       }
       mimeType = response.headers.get("content-type");
-      data = Buffer.from(await response.arrayBuffer()).toString("base64");
+      // 使用 Web 标准 API 将 ArrayBuffer 转换为 Base64
+      const ab = await response.arrayBuffer();
+      const u8a = new Uint8Array(ab);
+      data = btoa(String.fromCharCode.apply(null, u8a));
     } catch (err) {
       throw new Error("Error fetching image: " + err.toString());
     }

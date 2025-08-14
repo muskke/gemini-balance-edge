@@ -95,11 +95,17 @@ export async function handleRequest(request) {
       logger.info("Using client-provided Gemini API Key for OpenAI request.");
     }
     newHeaders.set("Authorization", `Bearer ${selectedKey}`);
-    request.headers = newHeaders;
-    // 修复：删除敏感信息日志，替换为脱敏日志
+    
+    // Create a new request with updated headers instead of modifying the original
+    const newRequest = new Request(request.url, {
+      method: request.method,
+      headers: newHeaders,
+      body: request.body
+    });
+    
     logger.debug("Request headers updated with API key");
     
-    return openai.fetch(request);
+    return openai.fetch(newRequest);
   }
 
   // Gemini 原生请求处理
@@ -116,14 +122,14 @@ export async function handleRequest(request) {
     selectedKey = selectApiKey(clientToken.split(',').map(k => k.trim()).filter(k => k));
     logger.debug("Using client-provided Gemini API Key for Gemini request.");
   }
-  request.headers.set("x-goog-api-key", selectedKey);
+  newHeaders.set("x-goog-api-key", selectedKey);
 
   logger.info("Request Sending to Gemini");
 
   try {
     const response = await fetch(url.href, {
       method: request.method,
-      headers: request.headers,
+      headers: newHeaders,
       body: request.body
     });
     logger.info("Call Gemini Success");

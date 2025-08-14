@@ -95,19 +95,15 @@ curl --location 'https://<YOUR_DEPLOYED_DOMAIN>/v1beta/models/gemini-2.5-pro:gen
 ```
 > **两种授权模式:**
 >
-> 1.  **客户端密钥模式**:
->     *   **Gemini 原生格式**: 在请求头中提供 `x-goog-api-key: <YOUR_GEMINI_API_KEY>`。
->     *   **OpenAI 兼容格式**: 在请求头中提供 `Authorization: Bearer <YOUR_GEMINI_API_KEY>`。
->     *   此模式下，您使用的是自己的 Gemini 密钥，代理服务仅作转发。
+> 1.  **Gemini 原生格式 (`x-goog-api-key`)**:
+>     *   **客户端密钥**: 在请求头中提供 `x-goog-api-key: <YOUR_GEMINI_API_KEY>`。
+>     *   **服务端密钥**: 在请求头中提供 `x-goog-api-key: <YOUR_AUTH_TOKEN>` (前提是服务端已配置 `AUTH_TOKEN` 和 `GEMINI_API_KEY`)。
 >
-> 2.  **服务端密钥模式 (需要配置 `AUTH_TOKEN`)**:
->     *   **前提**: 服务端已在环境变量中配置了 `GEMINI_API_KEY` 和 `AUTH_TOKEN`。
->     *   **调用方式**: 
->     *   - **Gemini 原生格式**: 在请求头中提供 `x-goog-api-key: <YOUR_AUTH_TOKEN>`
->     *   - **OpenAI 兼容格式**: 在请求头中提供 `Authorization: Bearer <YOUR_AUTH_TOKEN>`。
->     *   此模式下，您使用服务端的 `AUTH_TOKEN` 进行验证，通过后，服务会使用其自身配置的 `GEMINI_API_KEY` 去请求 Google。这可以保护您的 Gemini 密钥不暴露给最终用户。
+> 2.  **OpenAI 兼容格式 (`Authorization`)**:
+>     *   **客户端密钥**: 在请求头中提供 `Authorization: Bearer <YOUR_GEMINI_API_KEY>`。
+>     *   **服务端密钥**: 在请求头中提供 `Authorization: Bearer <YOUR_AUTH_TOKEN>` (前提是服务端已配置 `AUTH_TOKEN` 和 `GEMINI_API_KEY`)。
 >
-> > **注意**: 如果请求中未提供任何有效的 `x-goog-api-key` 或 `Authorization` 凭证，请求将被拒绝。
+> > **注意**: 如果请求中未提供任何有效的凭证，请求将被拒绝。
 
 
 ### API Key 校验

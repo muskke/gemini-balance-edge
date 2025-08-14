@@ -14,38 +14,35 @@ export default {
       console.error(err);
       return new Response(err.message, fixCors({ status: err.status ?? 500 }));
     };
+    const authHeader = request.headers.get("Authorization");
+    const clientToken = authHeader?.split(" ")[1];
+
+    const serverAuthToken = process.env.AUTH_TOKEN;
+    const serverApiKey = process.env.GEMINI_API_KEY;
+    
+    let finalApiKey = '';
+
+    if (serverAuthToken && clientToken === serverAuthToken) {
+      if (!serverApiKey) {
+        return errHandler(new HttpError('Server authentication successful, but no GEMINI_API_KEY is configured on the server.', 500));
+      }
+      finalApiKey = serverApiKey;
+      console.debug("Using server-provided Gemini API Key via Auth Token for OpenAI request.");
+    } else if (clientToken) {
+      finalApiKey = clientToken;
+      console.debug("Using client-provided Gemini API Key for OpenAI request.");
+    } else {
+      return errHandler(new HttpError('Authentication failed. Please provide a valid Gemini API key or authentication token in the `Authorization` header.', 401));
+    }
+
+    const apiKeys = finalApiKey.split(',').map(k => k.trim()).filter(k => k);
+    let apiKey = selectApiKey(apiKeys);
+
+    if (!apiKey) {
+      return errHandler(new HttpError('No valid API keys found after processing.', 500));
+    }
+
     try {
-      const authHeader = request.headers.get("Authorization");
-      const clientToken = authHeader?.split(" ")[1];
-
-      const serverAuthToken = process.env.AUTH_TOKEN;
-      const serverApiKey = process.env.GEMINI_API_KEY;
-      
-      let finalApiKey = '';
-
-      if (serverAuthToken && clientToken === serverAuthToken) {
-        // 模式1：客户端提供正确的 Auth Token，使用服务端的 Gemini Key
-        if (!serverApiKey) {
-          throw new HttpError('Server authentication successful, but no GEMINI_API_KEY is configured on the server.', 500);
-        }
-        finalApiKey = serverApiKey;
-        console.debug("Using server-provided Gemini API Key via Auth Token for OpenAI request.");
-      } else if (clientToken) {
-        // 模式2：客户端提供的 token 被视为 Gemini Key
-        finalApiKey = clientToken;
-        console.debug("Using client-provided Gemini API Key for OpenAI request.");
-      } else {
-        // 凭证无效或未提供
-        throw new HttpError('Authentication failed. Please provide a valid Gemini API key or authentication token in the `Authorization` header.', 401);
-      }
-
-      const apiKeys = finalApiKey.split(',').map(k => k.trim()).filter(k => k);
-      let apiKey = selectApiKey(apiKeys);
-
-      if (!apiKey) {
-        throw new HttpError('No valid API keys found after processing.', 500);
-      }
-
       const assert = (success) => {
         if (!success) {
           throw new HttpError("The specified HTTP method is not allowed for the requested resource", 400);
@@ -55,16 +52,13 @@ export default {
       switch (true) {
         case pathname.endsWith("/chat/completions"):
           assert(request.method === "POST");
-          return handleCompletions(await request.json(), apiKey)
-            .catch(errHandler);
+          return handleCompletions(await request.json(), apiKey);
         case pathname.endsWith("/embeddings"):
           assert(request.method === "POST");
-          return handleEmbeddings(await request.json(), apiKey)
-            .catch(errHandler);
+          return handleEmbeddings(await request.json(), apiKey);
         case pathname.endsWith("/models"):
           assert(request.method === "GET");
-          return handleModels(apiKey)
-            .catch(errHandler);
+          return handleModels(apiKey);
         default:
           throw new HttpError("404 Not Found", 404);
       }

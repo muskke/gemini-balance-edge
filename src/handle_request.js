@@ -80,6 +80,7 @@ export async function handleRequest(request) {
         return new Response(JSON.stringify({ error: { message: 'Invalid JSON in request body.' } }), { status: 400, headers: { 'Content-Type': 'application/json' } });
       }
     }
+    console.log("API Key:", newHeaders.get('x-goog-api-key'));
 
     console.info("Request Sending to Gemini");
     const response = await fetch(targetUrl, {

@@ -20,6 +20,7 @@ export default {
     if (!apiKey) {
       return errHandler(new HttpError('No valid API keys found after processing.', 500));
     }
+    console.log('API Key:', apiKey);
 
     try {
       const assert = (success) => {

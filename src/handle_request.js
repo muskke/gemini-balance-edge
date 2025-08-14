@@ -35,6 +35,40 @@ export async function handleRequest(request) {
     return handleVerification(request);
   }
 
+  if (pathname === "/models" && request.method === 'GET') {
+    logger.info("返回固定的 Gemini 模型列表");
+    
+    const modelsResponse = {
+      object: "list",
+      data: [
+        {
+          id: "gemini-2.5-flash",
+          object: "model",
+          created: 0,
+          owned_by: "google",
+          displayName: "Gemini 2.5 Flash",
+          description: "Fast and efficient model for most tasks"
+        },
+        {
+          id: "gemini-2.5-pro",
+          object: "model",
+          created: 0,
+          owned_by: "google",
+          displayName: "Gemini 2.5 Pro",
+          description: "Advanced model for complex reasoning tasks"
+        }
+      ]
+    };
+    
+    return new Response(JSON.stringify(modelsResponse, null, 2), {
+      status: 200,
+      headers: {
+        'Content-Type': 'application/json',
+        'Access-Control-Allow-Origin': '*'
+      }
+    });
+  }
+
   const serverAuthToken = process.env.AUTH_TOKEN;
   const serverApiKey = process.env.GEMINI_API_KEY;
 

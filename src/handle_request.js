@@ -23,8 +23,8 @@ export async function handleRequest(request) {
   const serverApiKey = process.env.GEMINI_API_KEY;
 
   // 克隆请求头，以便修改
-  const newHeaders = new Headers(request.headers);
-  const selectedKey = '';
+  let newHeaders = new Headers(request.headers);
+  let selectedKey = '';
 
   // OpenAI 格式请求处理
   if (url.pathname.endsWith("/chat/completions") || url.pathname.endsWith("/completions") || url.pathname.endsWith("/embeddings") || url.pathname.endsWith("/models")) {
@@ -37,7 +37,7 @@ export async function handleRequest(request) {
       if (!serverApiKey) {
         return new Response(JSON.stringify({ error: { message: 'Server authentication successful, but no GEMINI_API_KEY is configured on the server.' } }), { status: 500, headers: { 'Content-Type': 'application/json' } });
       }
-      const selectedKey = selectApiKey(serverApiKey.split(',').map(k => k.trim()).filter(k => k));
+      selectedKey = selectApiKey(serverApiKey.split(',').map(k => k.trim()).filter(k => k));
       console.info("Using server-provided Gemini API Key for OpenAI request.");
     } else {
       console.info("客户端模式");

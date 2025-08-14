@@ -10,16 +10,20 @@ Gemini API 代理, 使用边缘函数把Gemini API免费中转到国内。还可
 
 
 1. 点击部署按钮⬆️一键部署。
-2. 国内使用需要配置自定义域名
-3. 去[AIStudio](https://aistudio.google.com)申请一个免费Gemini API Key
+2. 在 Vercel 的项目设置中，找到 "Environment Variables" 选项，添加你的 API Key。变量名为 `GEMINI_API_KEY`，值为你申请到的 Key。如果你有多个 Key，可以用逗号隔开。
+3. 国内使用需要配置自定义域名。
+4. （可选）如果你需要代理到非官方的 Gemini API 端点，可以额外配置 `GEMINI_BASE_URL` 和 `GEMINI_API_VERSION` 环境变量。
+5. 去[AIStudio](https://aistudio.google.com)申请一个免费Gemini API Key
 <br>将API Key与自定义的域名填入AI客户端即可使用，如果有多个API Key用逗号分隔
 
 
 ## Netlify部署
 [![Deploy to Netlify](https://www.netlify.com/img/deploy/button.svg)](https://app.netlify.com/start/deploy?repository=https://github.com/tech-shrimp/gemini-balance-edge)
-1. 点击部署按钮，登录Github账户即可
-2. 免费分配域名，国内可直连（但是不稳定）。
-3. 去[AIStudio](https://aistudio.google.com)申请一个免费Gemini API Key
+1. 点击部署按钮，登录Github账户即可。
+2. 在 Netlify 的项目设置中，找到 "Build & deploy" -> "Environment" 选项，添加你的 API Key。变量名为 `GEMINI_API_KEY`，值为你申请到的 Key。如果你有多个 Key，可以用逗号隔开。
+3. 免费分配域名，国内可直连（但是不稳定）。
+4. （可选）如果你需要代理到非官方的 Gemini API 端点，可以额外配置 `GEMINI_BASE_URL` 和 `GEMINI_API_VERSION` 环境变量。
+5. 去[AIStudio](https://aistudio.google.com)申请一个免费Gemini API Key
 <br>将API Key与分配的域名填入AI客户端即可使用，如果有多个API Key用逗号分隔
 
 

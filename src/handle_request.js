@@ -24,7 +24,8 @@ export async function handleRequest(request) {
     return openai.fetch(request);
   }
 
-  const targetUrl = `https://generativelanguage.googleapis.com${pathname}${search}`;
+  const GEMINI_BASE_URL = process.env.GEMINI_BASE_URL || 'https://generativelanguage.googleapis.com';
+  const targetUrl = `${GEMINI_BASE_URL}${pathname}${search}`;
 
   try {
     const headers = new Headers();

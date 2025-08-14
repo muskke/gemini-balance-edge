@@ -22,6 +22,7 @@ const logger = {
 export async function handleRequest(request) {
   const url = new URL(request.url);
   const pathname = url.pathname;
+  const search = url.search;
 
   if (pathname === '/' || pathname === '/index.html') {
     return new Response('Proxy is Running!  More Details: https://github.com/muskke/gemini-balance-edge', {
@@ -124,11 +125,13 @@ export async function handleRequest(request) {
 
   logger.info("Request Sending to Gemini");
 
+  const baseUrl = process.env.GEMINI_BASE_URL || "https://generativelanguage.googleapis.com";
+  const targetUrl = `${baseUrl}${pathname}${search}`;
   try {
-    const response = await fetch(url.href, {
+    const response = await fetch(targetUrl, {
       method: request.method,
       headers: newHeaders,
-      body: request.body
+      body: request.body,
     });
     logger.info("Call Gemini Success");
     

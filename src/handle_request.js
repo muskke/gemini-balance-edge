@@ -27,6 +27,7 @@ export async function handleRequest(request) {
 
   // OpenAI 格式请求处理
   if (url.pathname.endsWith("/chat/completions") || url.pathname.endsWith("/completions") || url.pathname.endsWith("/embeddings") || url.pathname.endsWith("/models")) {
+    console.info("进入openai兼容分支");
     const authHeader = newHeaders.get("Authorization");
     const clientToken = authHeader?.split(" ")[1];
 
@@ -40,8 +41,11 @@ export async function handleRequest(request) {
     }
     
     const newRequest = new Request(request, { headers: newHeaders });
+    console.info("newHeaders:" + newHeaders);
     return openai.fetch(newRequest);
   }
+
+  console.info("进入gemini原生分支");
 
   // Gemini 原生格式请求处理
   const clientToken = newHeaders.get('x-goog-api-key');
@@ -62,6 +66,7 @@ export async function handleRequest(request) {
   const GEMINI_BASE_URL = process.env.GEMINI_BASE_URL || 'https://generativelanguage.googleapis.com';
   const targetUrl = `${GEMINI_BASE_URL}${pathname}${search}`;
 
+  console.info("newHeaders:" + newHeaders);
   try {
     let requestBody;
     if (request.method === 'POST') {

@@ -1,7 +1,6 @@
 import { handleVerification } from './verify_keys.js';
 import openai from './openai.mjs';
 import { KeyManager } from './utils.js';
-import { kv } from '@vercel/kv';
 
 // 添加日志系统
 const LOG_LEVELS = {
@@ -20,10 +19,15 @@ const logger = {
   debug: (msg, ...args) => LOG_LEVEL >= LOG_LEVELS.DEBUG && console.debug(`[DEBUG] ${msg}`, ...args)
 };
 
-export async function handleRequest(request) {
-  // @vercel/kv 会自动从环境变量中读取配置，无需手动创建客户端
-  const kvClient = kv;
+// 在模块级别获取服务器 KeyManager 的单例
+const serverApiKey = process.env.GEMINI_API_KEY;
+const keyManager = KeyManager.getInstance(serverApiKey, logger);
+if (serverApiKey) {
+  // 首次初始化后，立即触发一次健康检查，之后每次请求也触发
+  setTimeout(() => keyManager.healthCheck().catch(logger.error), 0);
+}
 
+export async function handleRequest(request) {
   const url = new URL(request.url);
   const pathname = url.pathname;
   const search = url.search;
@@ -78,14 +82,14 @@ export async function handleRequest(request) {
   }
 
   const serverAuthToken = process.env.AUTH_TOKEN;
-  const serverApiKey = process.env.GEMINI_API_KEY;
-
-  // 初始化 KeyManager
-  const keyManager = new KeyManager(serverApiKey, kvClient, logger);
-  await keyManager.initState();
 
   // 异步触发健康检查，不阻塞主流程
-  keyManager.healthCheck().catch(logger.error);
+  // 使用 setTimeout 确保它在当前事件循环之后运行，避免阻塞响应
+  if (serverApiKey) {
+    setTimeout(() => {
+      keyManager.healthCheck().catch(logger.error);
+    }, 0);
+  }
 
   // 克隆请求头，以便修改
   let newHeaders = new Headers(request.headers);
@@ -103,9 +107,8 @@ export async function handleRequest(request) {
   } else {
     clientTokenStr = clientApiKey_OpenAI || clientApiKey_Gemini || '';
     logger.info("Using client-provided Gemini API Keys.");
-    // 为客户端密钥创建临时的 KeyManager
-    const clientKeyManager = new KeyManager(clientTokenStr, null, logger); // 客户端密钥不使用 KV
-    await clientKeyManager.initState();
+    // 为客户端密钥获取 KeyManager 实例
+    const clientKeyManager = KeyManager.getInstance(clientTokenStr, logger);
     selectedKey = clientKeyManager.selectKey();
   }
 
@@ -140,23 +143,49 @@ export async function handleRequest(request) {
   logger.info("Request Sending to Gemini");
 
   const baseUrl = process.env.GEMINI_BASE_URL || "https://generativelanguage.googleapis.com";
+  // 检查是否为流式请求
+  const isStream = search.includes("alt=sse");
   const targetUrl = `${baseUrl}${pathname}${search}`;
   
   try {
     const response = await fetch(targetUrl, {
       method: request.method,
       headers: newHeaders,
-      body: request.body,
+      body: request.body, // 直接传递请求体，支持流式
+      duplex: 'half' // 允许在请求发送时接收响应
     });
 
-    // 如果 API 调用失败，则将密钥标记为不健康
+    // 对于流式响应，立即返回，不等待完整内容
+    if (isStream && response.ok) {
+      logger.info("Streaming response started.");
+      const responseHeaders = new Headers(response.headers);
+      responseHeaders.set('Content-Type', 'text/event-stream; charset=utf-8');
+      responseHeaders.set('Cache-Control', 'no-cache');
+      responseHeaders.set('Connection', 'keep-alive');
+      return new Response(response.body, {
+        status: response.status,
+        headers: responseHeaders,
+      });
+    }
+
+    // 对于非流式响应或错误响应
+    const responseBody = await response.text();
     if (!response.ok) {
       logger.warn(`API call failed with status ${response.status} for key ...${selectedKey.slice(-4)}`);
+      logger.warn("--- Full Request and Response Log ---");
+      logger.warn('Request URL:', targetUrl);
+      logger.warn('Request Method:', request.method);
+      logger.warn('Request Headers:', JSON.stringify(Object.fromEntries(newHeaders.entries())));
+      logger.warn('Request Body:', await request.clone().text()); // 克隆后读取
+      logger.warn('Response Status:', response.status);
+      logger.warn('Response Headers:', JSON.stringify(Object.fromEntries(response.headers.entries())));
+      logger.warn('Response Body:', responseBody);
+      logger.warn('------------------------------------');
       await keyManager.markAsUnhealthy(selectedKey);
     } else {
-      logger.info("Call Gemini Success");
+      logger.info("Call Gemini Success (non-stream)");
     }
-    
+
     const responseHeaders = new Headers(response.headers);
     responseHeaders.delete('transfer-encoding');
     responseHeaders.delete('connection');
@@ -164,7 +193,7 @@ export async function handleRequest(request) {
     responseHeaders.delete('content-encoding');
     responseHeaders.set('Referrer-Policy', 'no-referrer');
 
-    return new Response(response.body, {
+    return new Response(responseBody, {
       status: response.status,
       headers: responseHeaders
     });

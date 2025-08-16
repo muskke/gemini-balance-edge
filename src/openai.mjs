@@ -122,7 +122,7 @@ async function handleEmbeddings (req, apiKey) {
     body: JSON.stringify({
       "requests": req.input.map(text => ({
         model,
-        content: { parts: { text } },
+        content: { parts: [{ text }] },
         outputDimensionality: req.dimensions,
       }))
     })
@@ -399,7 +399,7 @@ const transformMsg = async ({ content }) => {
   if (!Array.isArray(content)) {
     // system, user: string
     // assistant: string or null (Required unless tool_calls is specified.)
-    parts.push({ text: content });
+    parts.push({ text: content ?? "" });
     return parts;
   }
   // user:
@@ -534,7 +534,7 @@ const transformCandidates = (key, cand) => {
         }
       });
     } else {
-      message.content.push(part.text);
+      message.content.push(part.text ?? "");
     }
   }
   message.content = message.content.join(SEP) || null;

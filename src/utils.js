@@ -1,53 +1,67 @@
 /**
  * KeyManager 类负责管理、选择和健康检查 API 密钥。
- * 支持加权轮询和从 Vercel KV 中同步状态。
+ * 支持加权轮询和内存状态管理。
+ * 采用多例模式，确保每个 keysString 只有一个实例。
  */
+
+const managerRegistry = new Map();
+
 export class KeyManager {
   /**
+   * @private constructor - Please use KeyManager.getInstance() instead.
    * @param {string} keysString - 带权重的密钥字符串，例如 "key1:10,key2:5,key3"
-   * @param {object} kvClient - Vercel KV 客户端实例
    * @param {object} logger - 日志记录器
    */
-  constructor(keysString, kvClient, logger = console) {
+  constructor(keysString, logger = console) {
+    if (managerRegistry.has(keysString)) {
+      // This check prevents direct instantiation, guiding users to the factory.
+      throw new Error("KeyManager instance for this keysString already exists. Use KeyManager.getInstance().");
+    }
     this.initialKeys = this._parseKeys(keysString);
-    this.kv = kvClient;
     this.logger = logger;
-    this.state = null; // 状态将从 KV 加载
-    this.logger.info(`KeyManager created. Vercel KV client is ${this.kv ? 'present' : 'absent'}.`);
+    this.state = null; // 状态将在 initState 中初始化
+    this.logger.info(`KeyManager created for keys: "${keysString}"`);
   }
 
   /**
-   * 从 Vercel KV 加载和初始化状态。
-   * 如果 KV 中没有状态，则使用初始密钥状态。
+   * 获取或创建 KeyManager 的单例实例。
+   * @param {string} keysString - The key string used to identify the manager instance.
+   * @param {object} logger - The logger instance.
+   * @returns {KeyManager} The singleton instance for the given keysString.
    */
-  async initState() {
-    if (this.state) return;
-    this.logger.info('Initializing KeyManager state...');
-
-    try {
-      const storedState = await this.kv?.get('gemini_keys_status');
-      this.logger.info(`State read from Vercel KV: ${storedState ? 'found' : 'not found'}.`);
-
-      if (storedState && storedState.keys && storedState.keys.length === this.initialKeys.length) {
-        this.state = storedState;
-      } else {
-        this.logger.warn('No valid state in Vercel KV or key mismatch. Initializing with default state.');
-        this.state = {
-          keys: this.initialKeys.map(k => ({ ...k })),
-          currentIndex: 0,
-        };
-        // 首次初始化时，异步保存状态，不阻塞主流程
-        this.saveState(this.state);
-      }
-      this.logger.info('KeyManager state initialized successfully.');
-    } catch (error) {
-      this.logger.error('Error during initState with Vercel KV:', error);
-      // 如果初始化失败，则使用内存中的状态作为后备
-      this.state = {
-        keys: this.initialKeys.map(k => ({ ...k })),
-        currentIndex: 0,
-      };
+  static getInstance(keysString, logger = console) {
+    if (!keysString) {
+      // Handle cases where keysString might be empty or null
+      keysString = '';
     }
+
+    if (!managerRegistry.has(keysString)) {
+      const newInstance = new KeyManager(keysString, logger);
+      managerRegistry.set(keysString, newInstance);
+    }
+    
+    const instance = managerRegistry.get(keysString);
+    // 如果实例尚未初始化状态，则进行初始化
+    if (!instance.state) {
+      instance.initState();
+    }
+    
+    return instance;
+  }
+
+  /**
+   * 初始化内存中的状态。
+   */
+  initState() {
+    if (this.state) return;
+    this.logger.info('Initializing KeyManager state in memory...');
+    
+    this.state = {
+      keys: this.initialKeys.map(k => ({ ...k })),
+      currentIndex: 0,
+    };
+    
+    this.logger.info('KeyManager state initialized successfully.');
   }
 
   /**
@@ -71,7 +85,7 @@ export class KeyManager {
    */
   selectKey() {
     if (!this.state) {
-      throw new Error("KeyManager state is not initialized. Call initState() first.");
+      this.initState();
     }
 
     const healthyKeys = this.state.keys.filter(k => k.healthy);
@@ -93,9 +107,6 @@ export class KeyManager {
     
     this.state.currentIndex = (this.state.currentIndex + 1) % weightedList.length;
 
-    // 使用“即发即忘”模式，不阻塞关键路径
-    this.saveState(this.state);
-
     return selected.key;
   }
 
@@ -103,14 +114,13 @@ export class KeyManager {
    * 将指定的密钥标记为不健康。
    * @param {string} apiKey
    */
-  async markAsUnhealthy(apiKey) {
-    if (!this.state) await this.initState();
+  markAsUnhealthy(apiKey) {
+    if (!this.state) this.initState();
     
     const keyToUpdate = this.state.keys.find(k => k.key === apiKey);
     if (keyToUpdate) {
       keyToUpdate.healthy = false;
       keyToUpdate.last_checked = Date.now();
-      this.saveState(this.state);
     }
   }
 
@@ -118,25 +128,19 @@ export class KeyManager {
    * 异步执行健康检查。
    */
   async healthCheck() {
-    if (!this.state) await this.initState();
+    if (!this.state) this.initState();
 
     const now = Date.now();
     const fiveMinutes = 5 * 60 * 1000;
-    let stateChanged = false;
 
     for (const key of this.state.keys) {
       if (!key.healthy && (now - key.last_checked > fiveMinutes)) {
         const isNowHealthy = await this._testApiKey(key.key);
         if (isNowHealthy) {
           key.healthy = true;
-          stateChanged = true;
         }
         key.last_checked = now;
       }
-    }
-
-    if (stateChanged) {
-      this.saveState(this.state);
     }
   }
 
@@ -159,28 +163,4 @@ export class KeyManager {
     }
   }
 
-  /**
-   * 将当前状态保存到 Vercel KV。
-   * @param {object} stateToSave
-   */
-  async saveState(stateToSave) {
-    // 立即更新内存中的状态引用
-    this.state = stateToSave;
-
-    if (!this.kv) {
-      this.logger.warn('No Vercel KV client, skipping saveState.');
-      return;
-    }
-
-    // 使用“即发即忘”模式，但返回 promise 以便捕获后台错误
-    try {
-      this.logger.info('Attempting to save state to Vercel KV...');
-      await this.kv.set('gemini_keys_status', stateToSave);
-      this.logger.info('State successfully saved to Vercel KV.');
-    } catch (error) {
-      this.logger.error('Background state save to Vercel KV failed:', error);
-      // 重新抛出错误，以便调用者可以捕获它
-      throw error;
-    }
-  }
 }

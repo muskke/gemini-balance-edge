@@ -1,9 +1,22 @@
-import { handleRequest } from "./handle_request.js";
+import { handleRequest } from './handle_request.js';
 
-async function denoHandleRequest(req: Request): Promise<Response> {
-  const url = new URL(req.url);
-  console.info('Request URL:', req.url);
-  return handleRequest(req);
-};
+// Deno Deploy 的入口点
+Deno.serve(async (request) => {
+  try {
+    // 直接调用我们现有的 handleRequest 逻辑
+    return await handleRequest(request);
+  } catch (error) {
+    console.error('Critical error in Deno server:', error);
+    return new Response(
+      JSON.stringify({
+        error: {
+          message: "An unexpected server error occurred in Deno Deploy.",
+          details: error.message,
+        },
+      }),
+      { status: 500, headers: { "Content-Type": "application/json" } }
+    );
+  }
+});
 
-Deno.serve({ port: 80 },denoHandleRequest); 
+console.log("Deno server is running.");

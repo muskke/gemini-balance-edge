@@ -41,6 +41,32 @@ Gemini Balance Edge 是一个部署在 Vercel Edge Network 上的高性能 API �
 5. 去[AIStudio](https://aistudio.google.com)申请一个免费Gemini API Key
 <br>将API Key与分配的域名填入AI客户端即可使用，如果有多个API Key用逗号分隔
 
+### Deno 部署 (推荐用于 Function Calling)
+[![Deploy to Deno](https://shield.deno.dev/deno/deploy)](https://dash.deno.com/new?url=https://github.com/muskke/gemini-balance-edge&entry=src/deno_index.ts&env=GEMINI_API_KEY,AUTH_TOKEN)
+
+对于需要使用 `Function Calling` 等可能耗时较长的操作，Vercel 或 Netlify 的 Serverless 函数可能会因为超时（通常为 10-25 秒）而被中断。Deno Deploy 没有此限制，是更稳定可靠的选择。
+
+1. **登录 Deno Deploy**:
+    - 访问 [https://dash.deno.com/](https://dash.deno.com/) 并使用您的 GitHub 账号登录。
+
+2. **创建新项目**:
+    - 点击 "**New Project**"，然后选择 "**Deploy from GitHub repository**"。
+    - 选择您的 `gemini-balance-edge` 仓库，并选择 `main` (或主) 分支。
+
+3. **配置部署设置**:
+    - **Entry Point (入口文件)**: Deno Deploy 会尝试自动检测。请务必将其设置为 `src/deno_index.ts`。
+    - 点击 "**Link**" 完成关联。
+
+4. **添加环境变量**:
+    - 项目关联后，进入项目的 "**Settings**" -> "**Environment Variables**"。
+    - 添加以下环境变量：
+        - `GEMINI_API_KEY`: 您的 Google Gemini API 密钥 (多个密钥请用逗号隔开)。
+        - `AUTH_TOKEN`: (可选) 您为服务设置的访问令牌。
+
+5. **完成部署**:
+    - 添加完环境变量后，Deno Deploy 会自动触发一次新的部署。
+    - 部署成功后，您将获得一个 `*.deno.dev` 的域名。请使用此域名作为新的 API 端点。
+
 ## 本地调试
 
 1.  安装 Node.js 和 Vercel CLI: `npm install -g vercel`

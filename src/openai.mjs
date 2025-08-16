@@ -157,7 +157,7 @@ async function handleCompletions (req, apiKey) {
     case req.model.startsWith("learnlm-"):
       model = req.model;
   }
-  let body = await transformRequest(req);
+  body = await transformRequest(req);
   const extra = req.extra_body?.google
   if (extra) {
     if (extra.safety_settings) {
@@ -188,10 +188,17 @@ async function handleCompletions (req, apiKey) {
   });
 
   body = response.body;
+  const responseOptions = fixCors(response);
+
   if (response.ok) {
     let id = "chatcmpl-" + generateId(); //"chatcmpl-8pMMaqXMK68B3nyDBrapTDrhkHBQK";
     const shared = {};
     if (req.stream) {
+      // Set headers for streaming to ensure client handles it correctly
+      responseOptions.headers.set('Content-Type', 'text/event-stream; charset=utf-8');
+      responseOptions.headers.set('Cache-Control', 'no-cache');
+      responseOptions.headers.set('Connection', 'keep-alive');
+
       body = response.body
         .pipeThrough(new TextDecoderStream())
         .pipeThrough(new TransformStream({
@@ -217,12 +224,12 @@ async function handleCompletions (req, apiKey) {
         }
       } catch (err) {
         console.error("Error parsing response:", err);
-        return new Response(body, fixCors(response)); // output as is
+        return new Response(body, responseOptions); // output as is
       }
       body = processCompletionsResponse(body, model, id);
     }
   }
-  return new Response(body, fixCors(response));
+  return new Response(body, responseOptions);
 }
 
 const adjustProps = (schemaPart) => {

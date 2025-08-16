@@ -162,6 +162,7 @@ export async function handleRequest(request) {
       responseHeaders.set('Content-Type', 'text/event-stream; charset=utf-8');
       responseHeaders.set('Cache-Control', 'no-cache');
       responseHeaders.set('Connection', 'keep-alive');
+      responseHeaders.set('Access-Control-Allow-Origin', '*');
       return new Response(response.body, {
         status: response.status,
         headers: responseHeaders,

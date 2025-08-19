@@ -26,7 +26,7 @@ curl "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions" 
 Gemini API 支持流式回答。
 
 ```curl
-curl "<https://generativelanguage.googleapis.com/v1beta/openai/chat/completions>" \
+curl "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions" \
 -H "Content-Type: application/json" \
 -H "Authorization: Bearer GEMINI_API_KEY" \
 -d '{

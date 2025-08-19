@@ -25,18 +25,16 @@ export default {
         headers: Object.fromEntries(request.headers.entries()),
         body: await request.clone().text(),
       });
-       
       
       const { pathname } = new URL(request.url);
       switch (true) {
         case pathname.endsWith("/chat/completions"):
           assert(request.method === "POST");
-          return handleCompletions(await request)
+          return handleCompletions(request)
             .catch(errHandler);
-        // case pathname.endsWith("/embeddings"):
-        //   assert(request.method === "POST");
-          // return handleEmbeddings(await request.json(), apiKey)
-          //   .catch(errHandler);
+        case pathname.endsWith("/embeddings"):
+          assert(request.method === "POST");
+          return handleEmbeddings(request).catch(errHandler);
         case pathname.endsWith("/models"):
           assert(request.method === "GET");
           return handleModels(apiKey)
@@ -107,7 +105,13 @@ async function handleModels (apiKey) {
 }
 
 const DEFAULT_EMBEDDINGS_MODEL = "text-embedding-004";
-async function handleEmbeddings (req, apiKey) {
+async function handleEmbeddings(request) {
+  const authHeader = request.headers.get("Authorization");
+  const apiKey = authHeader?.startsWith("Bearer ")
+    ? authHeader.substring(7)
+    : null;
+  
+  const req = await request.json();
   if (typeof req.model !== "string") {
     throw new HttpError("model is not specified", 400);
   }
@@ -121,31 +125,38 @@ async function handleEmbeddings (req, apiKey) {
     model = "models/" + req.model;
   }
   if (!Array.isArray(req.input)) {
-    req.input = [ req.input ];
+    req.input = [req.input];
   }
-  const response = await fetch(`${BASE_URL}/${API_VERSION}/${model}:batchEmbedContents`, {
-    method: "POST",
-    headers: makeHeaders(apiKey, { "Content-Type": "application/json" }),
-    body: JSON.stringify({
-      "requests": req.input.map(text => ({
-        model,
-        content: { parts: [{ text }] },
-        outputDimensionality: req.dimensions,
-      }))
-    })
-  });
+  const response = await fetch(
+    `${BASE_URL}/${API_VERSION}/${model}:batchEmbedContents`,
+    {
+      method: "POST",
+      headers: makeHeaders(apiKey, { "Content-Type": "application/json" }),
+      body: JSON.stringify({
+        requests: req.input.map((text) => ({
+          model,
+          content: { parts: [{ text }] },
+          outputDimensionality: req.dimensions,
+        })),
+      }),
+    }
+  );
   let { body } = response;
   if (response.ok) {
     const { embeddings } = JSON.parse(await response.text());
-    body = JSON.stringify({
-      object: "list",
-      data: embeddings.map(({ values }, index) => ({
-        object: "embedding",
-        index,
-        embedding: values,
-      })),
-      model: req.model,
-    }, null, "  ");
+    body = JSON.stringify(
+      {
+        object: "list",
+        data: embeddings.map(({ values }, index) => ({
+          object: "embedding",
+          index,
+          embedding: values,
+        })),
+        model: req.model,
+      },
+      null,
+      "  "
+    );
   }
   return new Response(body, fixCors(response));
 }

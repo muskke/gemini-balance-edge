@@ -92,7 +92,12 @@ export async function handleRequest(request) {
   }
 
   // OpenAI 路由转换
-  if (!isGeminiRequest) {
+  if (
+    url.pathname.endsWith("/chat/completions") ||
+    url.pathname.endsWith("/completions") ||
+    url.pathname.endsWith("/embeddings") ||
+    url.pathname.endsWith("/models")
+  ) {
     const newRequest = new Request(request.url, {
       method: request.method,
       headers: newHeaders,
@@ -109,6 +114,7 @@ export async function handleRequest(request) {
   const targetUrl = `${baseUrl}${pathname}${search}`;
 
   try {
+
     const response = await fetch(targetUrl, {
       method: request.method,
       headers: newHeaders,

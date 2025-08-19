@@ -1,3 +1,5 @@
+import { logger as defaultLogger } from "./logger.mjs";
+
 /**
  * KeyManager 类负责管理、选择和健康检查 API 密钥。
  * 支持加权轮询和内存状态管理。
@@ -12,7 +14,7 @@ export class KeyManager {
    * @param {string} keysString - 带权重的密钥字符串，例如 "key1:10,key2:5,key3"
    * @param {object} logger - 日志记录器
    */
-  constructor(keysString, logger = console) {
+  constructor(keysString, logger = defaultLogger) {
     if (managerRegistry.has(keysString)) {
       // This check prevents direct instantiation, guiding users to the factory.
       throw new Error("KeyManager instance for this keysString already exists. Use KeyManager.getInstance().");
@@ -29,7 +31,7 @@ export class KeyManager {
    * @param {object} logger - The logger instance.
    * @returns {KeyManager} The singleton instance for the given keysString.
    */
-  static getInstance(keysString, logger = console) {
+  static getInstance(keysString, logger = defaultLogger) {
     if (!keysString) {
       // Handle cases where keysString might be empty or null
       keysString = '';

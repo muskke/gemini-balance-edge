@@ -1,6 +1,7 @@
 //Author: muskke
 //Project: https://github.com/muskke/gemini-balance-edge
 //MIT License : https://github.com/muskke/gemini-balance-edge/blob/main/LICENSE
+import { logger } from "./logger.mjs";
 
 export default {
   async fetch (request) {
@@ -8,7 +9,7 @@ export default {
       return handleOPTIONS();
     }
     const errHandler = (err) => {
-      console.error(err);
+      logger.error(err);
       return new Response(err.message, fixCors({ status: err.status ?? 500 }));
     };
     try {
@@ -18,14 +19,14 @@ export default {
         }
       };
 
-      //  console.warn("--- Full Request and Response Log ---");
-      //  console.warn("Request URL:", request.url);
-      //  console.warn("Request Method:", request.method);
-      //  console.warn(
-      //    "Request Headers:",
-      //    JSON.stringify(Object.fromEntries(request.headers.entries()))
-      //  );
-      //  console.warn("Request Body:", await request.clone().text()); // 克隆后读取
+       logger.warn("--- Full Request and Response Log ---");
+       logger.warn("Request URL:", request.url);
+       logger.warn("Request Method:", request.method);
+       logger.warn(
+         "Request Headers:",
+         JSON.stringify(Object.fromEntries(request.headers.entries()))
+       );
+       logger.warn("Request Body:", await request.clone().text()); // 克隆后读取
        
       
       const { pathname } = new URL(request.url);
@@ -34,10 +35,10 @@ export default {
           assert(request.method === "POST");
           return handleCompletions(await request)
             .catch(errHandler);
-        case pathname.endsWith("/embeddings"):
-          assert(request.method === "POST");
-          return handleEmbeddings(await request.json(), apiKey)
-            .catch(errHandler);
+        // case pathname.endsWith("/embeddings"):
+        //   assert(request.method === "POST");
+          // return handleEmbeddings(await request.json(), apiKey)
+          //   .catch(errHandler);
         case pathname.endsWith("/models"):
           assert(request.method === "GET");
           return handleModels(apiKey)
@@ -163,23 +164,24 @@ async function handleCompletions(request) {
     body: request.body,
   });
 
-  let body = response.body;
-  const responseOptions = fixCors(response);
+  const responseBody = await response.text();
 
-  // console.warn("Response Status:", response.status);
-  // console.warn(
-  //   "Response Headers:",
-  //   JSON.stringify(Object.fromEntries(response.headers.entries()))
-  // );
-  // console.warn("Response Body:", body);
-  // console.warn("------------------------------------");
+  logger.warn("Response Status:", response.status);
+  logger.warn(
+    "Response Headers:",
+    JSON.stringify(Object.fromEntries(response.headers.entries()))
+  );
+  logger.warn("Response Body:", responseBody);
+  logger.warn("------------------------------------");
 
   const responseHeaders = new Headers(response.headers);
-  responseHeaders.set("Content-Type", "text/event-stream; charset=utf-8");
-  responseHeaders.set("Cache-Control", "no-cache");
-  responseHeaders.set("Connection", "keep-alive");
-  responseHeaders.set("Access-Control-Allow-Origin", "*");
-  return new Response(response.body, {
+  responseHeaders.delete("transfer-encoding");
+  responseHeaders.delete("connection");
+  responseHeaders.delete("keep-alive");
+  responseHeaders.delete("content-encoding");
+  responseHeaders.set("Referrer-Policy", "no-referrer");
+  
+  return new Response(responseBody, {
     status: response.status,
     headers: responseHeaders,
   });

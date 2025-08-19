@@ -83,21 +83,23 @@ export async function handleRequest(request) {
 
   // 根据请求类型设置头部
   const baseUrl = process.env.GEMINI_BASE_URL || "https://generativelanguage.googleapis.com";
-  const isGeminiRequest = url.pathname.includes(baseUrl);
-  if (isGeminiRequest) {
-    newHeaders.set("x-goog-api-key", selectedKey);
-  } else {
-    // 默认为 OpenAI 格式
-    newHeaders.set("Authorization", `Bearer ${selectedKey}`);
-  }
-
-  // OpenAI 路由转换
-  if (
+  const isOpenAIRequest =
     url.pathname.endsWith("/chat/completions") ||
     url.pathname.endsWith("/completions") ||
     url.pathname.endsWith("/embeddings") ||
-    url.pathname.endsWith("/models")
-  ) {
+    url.pathname.endsWith("/models");
+
+  if (isOpenAIRequest) {
+    // OpenAI 格式
+    newHeaders.set("Authorization", `Bearer ${selectedKey}`);
+  } else {
+    // 默认为 Gemini 格式
+    newHeaders.set("x-goog-api-key", selectedKey);
+    newHeaders.delete("Authorization");
+  }
+
+  // OpenAI 路由转换
+  if (isOpenAIRequest) {
     const newRequest = new Request(request.url, {
       method: request.method,
       headers: newHeaders,

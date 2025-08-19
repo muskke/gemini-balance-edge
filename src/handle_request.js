@@ -116,14 +116,7 @@ export async function handleRequest(request) {
   const targetUrl = `${baseUrl}${pathname}${search}`;
 
 
-  logger.warn("Forwarding to OpenAI compatible endpoint", {
-    url: request.url,
-    method: request.method,
-    headers: Object.fromEntries(request.headers.entries()),
-  });
-
   try {
-
     const response = await fetch(targetUrl, {
       method: request.method,
       headers: newHeaders,
@@ -171,10 +164,7 @@ export async function handleRequest(request) {
     }
 
     const responseHeaders = new Headers(response.headers);
-    responseHeaders.delete("transfer-encoding");
-    responseHeaders.delete("connection");
-    responseHeaders.delete("keep-alive");
-    responseHeaders.delete("content-encoding");
+    responseHeaders.set("Access-Control-Allow-Origin", "*");
     responseHeaders.set("Referrer-Policy", "no-referrer");
 
     return new Response(responseBody, {
@@ -189,11 +179,10 @@ export async function handleRequest(request) {
       JSON.stringify({
         error: {
           message:
-            "An unexpected error occurred while fetching the upstream API.\n" +
-            error?.stack,
+            "An unexpected error occurred while fetching the upstream API.",
         },
       }),
       { status: 500, headers: { "Content-Type": "application/json" } }
     );
-  }
+  } 
 }

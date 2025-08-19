@@ -127,10 +127,7 @@ async function handleCompletions(request) {
   });
 
   const responseHeaders = new Headers(response.headers);
-  responseHeaders.delete("transfer-encoding");
-  responseHeaders.delete("connection");
-  responseHeaders.delete("keep-alive");
-  responseHeaders.delete("content-encoding");
+  responseHeaders.set("Access-Control-Allow-Origin", "*");
   responseHeaders.set("Referrer-Policy", "no-referrer");
   
   return new Response(responseBody, {

@@ -113,13 +113,22 @@ export async function handleRequest(request) {
   const isStream = search.includes("alt=sse");
   const targetUrl = `${baseUrl}${pathname}${search}`;
 
+
+  logger.warn("Forwarding to OpenAI compatible endpoint", {
+    url: request.url,
+    method: request.method,
+    headers: Object.fromEntries(request.headers.entries()),
+    //  body: await request.clone().text(),
+  });
+
+  
   try {
 
     const response = await fetch(targetUrl, {
       method: request.method,
       headers: newHeaders,
       body: request.body, // 直接传递请求体，支持流式
-      duplex: "half", // 允许在请求发送时接收响应
+      duplex: 'half' // 允许在请求发送时接收响应
     });
 
     // 对于流式响应，立即返回，不等待完整内容
@@ -148,7 +157,7 @@ export async function handleRequest(request) {
             url: targetUrl,
             method: request.method,
             headers: Object.fromEntries(newHeaders.entries()),
-            body: await request.clone().text(),
+            body: await request.text(), // 使用原始请求的 body 进行记录
           },
           response: {
             status: response.status,

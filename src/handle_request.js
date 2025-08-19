@@ -118,10 +118,8 @@ export async function handleRequest(request) {
     url: request.url,
     method: request.method,
     headers: Object.fromEntries(request.headers.entries()),
-    //  body: await request.clone().text(),
   });
 
-  
   try {
 
     const response = await fetch(targetUrl, {
@@ -157,7 +155,6 @@ export async function handleRequest(request) {
             url: targetUrl,
             method: request.method,
             headers: Object.fromEntries(newHeaders.entries()),
-            body: await request.text(), // 使用原始请求的 body 进行记录
           },
           response: {
             status: response.status,

@@ -52,7 +52,7 @@ export async function handleVerification(request) {
         const verificationPromises = keys.map(key =>
           verifyKey(key, controller).catch(e => {
             // 确保即使单个 promise 失败，也不会中断整个流
-            logger.error(`Error verifying key: ${key}`, e);
+            logger.error(`Error verifying key: ${key.slice(0, 7)}...`, e);
             const errorResult = { key: `${key.slice(0, 7)}......${key.slice(-7)}`, status: 'ERROR', error: 'Stream failed during verification.' };
             controller.enqueue(new TextEncoder().encode('data: ' + JSON.stringify(errorResult) + '\n\n'));
           })

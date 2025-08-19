@@ -22,7 +22,7 @@ export class KeyManager {
     this.initialKeys = this._parseKeys(keysString);
     this.logger = logger;
     this.state = null; // 状态将在 initState 中初始化
-    this.logger.info(`KeyManager created for keys: "${keysString}"`);
+    this.logger.debug(`KeyManager created for keys: "${keysString}"`);
   }
 
   /**
@@ -56,14 +56,14 @@ export class KeyManager {
    */
   initState() {
     if (this.state) return;
-    this.logger.info('Initializing KeyManager state in memory...');
+    this.logger.debug('Initializing KeyManager state in memory...');
     
     this.state = {
       keys: this.initialKeys.map(k => ({ ...k })),
       currentIndex: 0,
     };
     
-    this.logger.info('KeyManager state initialized successfully.');
+    this.logger.debug('KeyManager state initialized successfully.');
   }
 
   /**

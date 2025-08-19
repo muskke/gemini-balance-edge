@@ -170,23 +170,21 @@ export async function handleRequest(request) {
       logger.warn(
         `API call failed with status ${
           response.status
-        } for key ...${selectedKey.slice(-4)}`
+        } for key ...${selectedKey.slice(-4)}`,
+        {
+          request: {
+            url: targetUrl,
+            method: request.method,
+            headers: Object.fromEntries(newHeaders.entries()),
+            body: await request.clone().text(),
+          },
+          response: {
+            status: response.status,
+            headers: Object.fromEntries(response.headers.entries()),
+            body: responseBody,
+          },
+        }
       );
-      logger.warn("--- Full Request and Response Log ---");
-      logger.warn("Request URL:", targetUrl);
-      logger.warn("Request Method:", request.method);
-      logger.warn(
-        "Request Headers:",
-        JSON.stringify(Object.fromEntries(newHeaders.entries()))
-      );
-      logger.warn("Request Body:", await request.clone().text()); // 克隆后读取
-      logger.warn("Response Status:", response.status);
-      logger.warn(
-        "Response Headers:",
-        JSON.stringify(Object.fromEntries(response.headers.entries()))
-      );
-      logger.warn("Response Body:", responseBody);
-      logger.warn("------------------------------------");
       await keyManager.markAsUnhealthy(selectedKey);
     } else {
       logger.info("Call Gemini Success (non-stream)");

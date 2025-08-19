@@ -19,14 +19,12 @@ export default {
         }
       };
 
-       logger.warn("--- Full Request and Response Log ---");
-       logger.warn("Request URL:", request.url);
-       logger.warn("Request Method:", request.method);
-       logger.warn(
-         "Request Headers:",
-         JSON.stringify(Object.fromEntries(request.headers.entries()))
-       );
-       logger.warn("Request Body:", await request.clone().text()); // 克隆后读取
+       logger.debug("Forwarding to OpenAI compatible endpoint", {
+        url: request.url,
+        method: request.method,
+        headers: Object.fromEntries(request.headers.entries()),
+        body: await request.clone().text(),
+      });
        
       
       const { pathname } = new URL(request.url);
@@ -166,13 +164,11 @@ async function handleCompletions(request) {
 
   const responseBody = await response.text();
 
-  logger.warn("Response Status:", response.status);
-  logger.warn(
-    "Response Headers:",
-    JSON.stringify(Object.fromEntries(response.headers.entries()))
-  );
-  logger.warn("Response Body:", responseBody);
-  logger.warn("------------------------------------");
+  logger.debug("Received response from OpenAI compatible endpoint", {
+    status: response.status,
+    headers: Object.fromEntries(response.headers.entries()),
+    body: responseBody,
+  });
 
   const responseHeaders = new Headers(response.headers);
   responseHeaders.delete("transfer-encoding");

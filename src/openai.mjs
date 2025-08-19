@@ -152,6 +152,9 @@ async function handleEmbeddings (req, apiKey) {
 
 const DEFAULT_MODEL = "gemini-2.5-flash";
 async function handleCompletions(request) {
+  const requestBody = await request.json();
+  const stream = requestBody.stream || false;
+
   let url = `${baseUrl}/${apiVersion}/openai/chat/completions`;
   const response = await fetch(url, {
     method: "POST",
@@ -159,8 +162,12 @@ async function handleCompletions(request) {
       "Authorization": request.headers.get("Authorization"),
       "Content-Type": "application/json",
     },
-    body: request.body,
+    body: JSON.stringify(requestBody),
   });
+
+  if (stream) {
+    return response;
+  }
 
   const responseBody = await response.text();
 

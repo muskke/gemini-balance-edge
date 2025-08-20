@@ -1,7 +1,7 @@
 //Author: muskke
 //Project: https://github.com/muskke/gemini-balance-edge
 //MIT License : https://github.com/muskke/gemini-balance-edge/blob/main/LICENSE
-import { logger } from "./logger.mjs";
+import { logger, redactHeaders } from "./logger.mjs";
 
 export default {
   async fetch (request) {
@@ -19,10 +19,10 @@ export default {
         }
       };
 
-       logger.warn("Forwarding to OpenAI compatible endpoint", {
+       logger.info("Forwarding to OpenAI compatible endpoint", {
          url: request.url,
          method: request.method,
-         headers: Object.fromEntries(request.headers.entries()),
+         headers: redactHeaders(Object.fromEntries(request.headers.entries())),
         //  body: await request.clone().text(),
        });
       
@@ -84,7 +84,13 @@ async function handleModels(request) {
       "Content-Type": "application/json",
     },
   });
-  return response;
+  const responseHeaders = new Headers(response.headers);
+  responseHeaders.set("Access-Control-Allow-Origin", "*");
+  responseHeaders.set("Referrer-Policy", "no-referrer");
+  return new Response(response.body, {
+    status: response.status,
+    headers: responseHeaders,
+  });
 }
 
 async function handleEmbeddings(request) {
@@ -97,7 +103,13 @@ async function handleEmbeddings(request) {
     },
     body: request.body,
   });
-  return response;
+  const responseHeaders = new Headers(response.headers);
+  responseHeaders.set("Access-Control-Allow-Origin", "*");
+  responseHeaders.set("Referrer-Policy", "no-referrer");
+  return new Response(response.body, {
+    status: response.status,
+    headers: responseHeaders,
+  });
 }
 
 async function handleCompletions(request) {
@@ -115,15 +127,20 @@ async function handleCompletions(request) {
   });
 
   if (stream) {
-    return response;
+    const responseHeaders = new Headers(response.headers);
+    responseHeaders.set("Access-Control-Allow-Origin", "*");
+    responseHeaders.set("Referrer-Policy", "no-referrer");
+    return new Response(response.body, {
+      status: response.status,
+      headers: responseHeaders,
+    });
   }
 
   const responseBody = await response.text();
 
-  logger.warn("Received response from OpenAI compatible endpoint", {
+  logger.info("Received response from OpenAI compatible endpoint", {
     status: response.status,
-    headers: Object.fromEntries(response.headers.entries()),
-    body: responseBody,
+    headers: redactHeaders(Object.fromEntries(response.headers.entries())),
   });
 
   const responseHeaders = new Headers(response.headers);

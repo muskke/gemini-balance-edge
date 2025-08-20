@@ -7,12 +7,33 @@ Gemini Balance Edge 是一个部署在 Vercel Edge Network 上的高性能 API �
 
 ### ✨ 核心功能
 
-- **智能负载均衡**: 不再是简单的随机选取，而是采用**加权轮询 (Weighted Round-Robin)** 算法。您可以为每个 API Key 设置不同的权重，高权重的 Key 将被更频繁地使用。
-- **自动健康检查**: 系统会自动检测失效的 API Key。当一个 Key 请求失败后，它会被自动标记为“不健康”并暂时移出轮询池。
-- **状态持久化**: 利用 **Vercel KV (Redis)**，所有 API Key 的健康状态和当前轮询位置都会被持久化存储。这意味着即使 Serverless 函数冷启动，负载均衡的状态也能无缝恢复，确保了在无状态环境下的高可用性。
-- **自动恢复**: 系统会定期对“不健康”的 Key 进行静默检查。一旦 Key 恢复正常，它将自动回归到工作队列中，实现无人干预的故障恢复。
-- **多平台兼容**: 一键部署至 Vercel (推荐) 或 Netlify。
-- **OpenAI 格式兼容**: 支持以 OpenAI 的 API 格式进行请求，无缝对接现有生态。
+- **平滑加权轮询（SWRR）**：通过 "key:weight" 配置权重，分配更平滑、无需构造大权重数组
+- **健康管理（内存态）**：
+  - 仅在 401/403（鉴权失败）时将对应 Key 标记为“不健康”
+  - 其他错误（含 4xx/429/5xx/网络异常）不直接标记不健康
+  - 后台周期性健康检查，恢复可用 Key
+- **OpenAI 兼容层**：
+  - 支持路径：/chat/completions、/embeddings、/models
+- **CORS 与预检**：
+  - 顶层统一处理 OPTIONS 预检
+  - 所有响应附加 Access-Control-Allow-Origin: *
+  - SSE 响应设置 text/event-stream、keep-alive 等必要头
+- **安全与日志**：
+  - 日志默认脱敏 Authorization、x-goog-api-key、Cookie 等敏感头
+  - 默认不记录大响应体，仅在 DEBUG 时定位问题
+- **/verify Key 校验**：
+  - SSE 流式返回每个 Key 的校验结果
+  - 附带心跳与开始/结束注释帧，改善前端体验
+
+## 环境变量
+
+- GEMINI_API_KEY：服务器侧 Key 列表，逗号分隔；支持权重格式 key:weight，例如 key1:10,key2:5,key3
+- AUTH_TOKEN（可选）：服务访问令牌。启用后：
+  - 客户端可用 Authorization: Bearer <AUTH_TOKEN> 或 x-goog-api-key: <AUTH_TOKEN> 请求服务端密钥池
+  - /verify 需 Authorization: Bearer <AUTH_TOKEN> 才可访问
+- GEMINI_BASE_URL（可选）：Gemini API 基址，默认 https://generativelanguage.googleapis.com
+- GEMINI_API_VERSION（可选）：Gemini API 版本，默认 v1beta
+- LOG_LEVEL（可选）：ERROR|WARN|INFO|DEBUG，默认 INFO
 
 ## 部署方案
 
@@ -32,6 +53,7 @@ Gemini Balance Edge 是一个部署在 Vercel Edge Network 上的高性能 API �
 
 ### Netlify 部署
 [![Deploy to Netlify](https://www.netlify.com/img/deploy/button.svg)](https://app.netlify.com/start/deploy?repository=https://github.com/tech-shrimp/gemini-balance-edge)
+
 *注意：Netlify 平台不支持 Vercel KV，因此状态持久化和健康检查功能将不可用。*
 
 1. 点击部署按钮，登录Github账户即可。
@@ -92,47 +114,7 @@ Gemini Balance Edge 是一个部署在 Vercel Edge Network 上的高性能 API �
 
 完成这些设置后，每当您向 `main` 分支推送提交，GitHub Actions 就会自动为您完成部署。
 
-## API 说明
-
-### Gemini 代理
-可以使用 Gemini 的原生 API 格式进行代理请求。
-**Curl 示例:**
-```bash
-curl --location 'https://<YOUR_DEPLOYED_DOMAIN>/v1beta/models/gemini-2.5-pro:generateContent' \
---header 'Content-Type: application/json' \
---header 'x-goog-api-key: <YOUR_GEMINI_API_KEY_1>,<YOUR_GEMINI_API_KEY_2>' \
---data '{
-    "contents": [
-        {
-         "role": "user",
-         "parts": [
-            {
-               "text": "Hello"
-            }
-         ]
-      }
-    ]
-}'
-```
-**Curl 示例:（流式）**
-
-```bash
-curl --location 'https://<YOUR_DEPLOYED_DOMAIN>/v1beta/models/gemini-2.5-pro:generateContent?alt=sse' \
---header 'Content-Type: application/json' \
---header 'x-goog-api-key: <YOUR_GEMINI_API_KEY_1>,<YOUR_GEMINI_API_KEY_2>' \
---data '{
-    "contents": [
-        {
-         "role": "user",
-         "parts": [
-            {
-               "text": "Hello"
-            }
-         ]
-      }
-    ]
-}'
-```
+## 使用方式
 
 > **两种授权模式:**
 >
@@ -144,34 +126,104 @@ curl --location 'https://<YOUR_DEPLOYED_DOMAIN>/v1beta/models/gemini-2.5-pro:gen
 >     - **客户端密钥**: 在请求头中提供 `Authorization: Bearer <YOUR_GEMINI_API_KEY>`。
 >     - **服务端密钥**: 在请求头中提供 `Authorization: Bearer <YOUR_AUTH_TOKEN>` (前提是服务端已配置 `AUTH_TOKEN` 和 `GEMINI_API_KEY`)。
 >
-> > **注意**: 如果请求中未提供任何有效的凭证，请求将被拒绝。
+> \* **注意**: 如果请求中未提供任何有效的凭证，请求将被拒绝。
+1) Gemini 原生格式
+- 非流式
+  ```bash
+  curl --location 'https://<YOUR_DOMAIN>/v1beta/models/gemini-2.5-pro:generateContent' \
+  --header 'Content-Type: application/json' \
+  --header 'x-goog-api-key: <KEY1>,<KEY2>' \
+  --data '{
+    "contents":[{"role":"user","parts":[{"text":"Hello"}]}]
+  }'
+  ```
 
-### API Key 校验
-可以通过向 `/verify` 端点发送请求来校验你的 API Key 是否有效。可以一次性校验多个 Key，用逗号隔开。
-**Curl 示例:**
+- 流式（SSE）
+  ```bash
+  curl --location 'https://<YOUR_DOMAIN>/v1beta/models/gemini-2.5-pro:generateContent?alt=sse' \
+  --header 'Content-Type: application/json' \
+  --header 'x-goog-api-key: <KEY1>,<KEY2>' \
+  --data '{
+    "contents":[{"role":"user","parts":[{"text":"Hello"}]}]
+  }'
+  ```
 
-```bash
-curl --location 'https://<YOUR_DEPLOYED_DOMAIN>/verify' \
---header 'x-goog-api-key: <YOUR_GEMINI_API_KEY_1>,<YOUR_GEMINI_API_KEY_2>'
-```
+2) OpenAI 兼容格式
+- 支持 /chat/completions、/embeddings、/models
+  ```bash
+  curl --location 'https://<YOUR_DOMAIN>/chat/completions' \
+  --header 'Content-Type: application/json' \
+  --header 'Authorization: Bearer <YOUR_GEMINI_KEY_OR_AUTH_TOKEN>' \
+  --data '{
+    "model":"gpt-3.5-turbo",
+    "messages":[{"role":"user","content":"你好"}],
+    "stream": false
+  }'
+  ```
 
-### OpenAI 格式
-本项目兼容 OpenAI 的 API 格式，你可以通过 `/chat` 或 `/chat/completions` 端点来发送请求。
-**Curl 示例:**
-```bash
-curl --location 'https://<YOUR_DEPLOYED_DOMAIN>/chat/completions' \
---header 'Content-Type: application/json' \
---header 'Authorization: Bearer <YOUR_GEMINI_API_KEY>' \
---data '{
-    "model": "gpt-3.5-turbo",
-    "messages": [
-        {
-            "role": "user",
-            "content": "你好"
-        }
-    ]
-}'
-```
+3) API Key 校验（SSE）
+- 需在服务端配置 AUTH_TOKEN 时，携带 Authorization: Bearer <AUTH_TOKEN>
+  ```bash
+  curl --location 'https://<YOUR_DOMAIN>/verify' \
+  --header 'Authorization: Bearer <AUTH_TOKEN>' \
+  --header 'x-goog-api-key: <KEY1>,<KEY2>'
+  ```
 
-## 说明
-本项目改编自大佬: [技术爬爬虾](https://github.com/tech-shrimp/gemini-balance-lite)，感谢大佬的贡献。
+SSE 事件：
+- : verify-start（注释帧）
+- data: {"key":"xxxxxxx......xxxxxxx","status":"GOOD|BAD|ERROR", "error":"可选"}
+- : heartbeat（每 5s）
+- : verify-end（注释帧）
+
+## 负载均衡与健康策略
+
+- 平滑加权轮询（SWRR）：每个健康 Key 维护 currentWeight，按权重累加并选择最大者，选中后 currentWeight 减去总权重，实现更平滑分配
+- 健康判定：
+  - 401/403：标记不健康（可能为 Key 失效、禁用）
+  - 429/5xx/网络错误：不直接标记不健康，建议客户端重试或降级
+  - 4xx（如 400/404）：多为请求问题，不影响 Key 健康
+- 恢复：后台周期性探活恢复不健康 Key
+
+## CORS 与预检
+
+- 全局 OPTIONS：返回 204，允许任意方法与头（仅演示，生产可按需收窄）
+- 正常与错误响应均附加：
+  - Access-Control-Allow-Origin: *
+  - Referrer-Policy: no-referrer
+- SSE 响应额外设置：
+  - Content-Type: text/event-stream; charset=utf-8
+  - Cache-Control: no-cache
+  - Connection: keep-alive
+
+## 安全建议
+
+- 强烈建议设置 AUTH_TOKEN，限制代理与 /verify 的滥用
+- 前端/日志系统不要记录完整密钥；本项目在日志层已对敏感头进行脱敏
+- 如需进一步控制，建议在边缘层增加速率限制与 IP/令牌级配额（本项目暂未内置）
+
+## 部署
+
+- Vercel：一键部署后在环境变量中配置 GEMINI_API_KEY（支持权重）、可选 AUTH_TOKEN 等。注意：当前无 KV 持久化
+- Netlify：功能类似，无持久化
+- Deno Deploy：推荐用于长时间交互（Function Calling 等），无平台超时限制。同样为内存态
+
+## 本地开发
+
+- 推荐使用 Vercel CLI
+  npm i -g vercel
+  vercel dev
+
+- 或在 Deno 环境直接部署测试（见项目根目录的 deno 部署说明与 src/deno_index.ts）。
+
+## 变更记录（相较此前版本）
+
+- 文档调整为“无持久化，仅进程内存”，移除 Vercel KV 相关描述
+- 仅在 401/403 时标记 Key 不健康；移除对网络异常的误伤
+- 实现 SWRR，减少临时大数组的构造开销
+- 统一 CORS/预检处理；SSE 增加心跳与注释帧
+- OpenAI 兼容层不再包含 /completions 路由
+- 日志默认脱敏敏感头，减少泄露风险
+
+## 版权
+
+MIT License. 改编自：技术爬爬虾（gemini-balance-lite），致谢原作者。

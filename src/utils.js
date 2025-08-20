@@ -14,8 +14,9 @@ export class KeyManager {
    * @param {string} keysString - 带权重的密钥字符串，例如 "key1:10,key2:5,key3"
    * @param {object} logger - 日志记录器
    */
-  constructor(keysString, logger = defaultLogger) {
-    if (managerRegistry.has(keysString)) {
+  constructor(keysString, logger = defaultLogger, options = {}) {
+    const { skipRegistryCheck = false } = options;
+    if (!skipRegistryCheck && managerRegistry.has(keysString)) {
       // This check prevents direct instantiation, guiding users to the factory.
       throw new Error("KeyManager instance for this keysString already exists. Use KeyManager.getInstance().");
     }
@@ -52,6 +53,13 @@ export class KeyManager {
   }
 
   /**
+   * 创建临时 KeyManager，不注册到全局缓存，适用于客户端密钥。
+   */
+  static createEphemeral(keysString, logger = defaultLogger) {
+    return new KeyManager(keysString || '', logger, { skipRegistryCheck: true });
+  }
+
+  /**
    * 初始化内存中的状态。
    */
   initState() {
@@ -59,7 +67,7 @@ export class KeyManager {
     this.logger.debug('Initializing KeyManager state in memory...');
     
     this.state = {
-      keys: this.initialKeys.map(k => ({ ...k })),
+      keys: this.initialKeys.map(k => ({ ...k, currentWeight: 0 })),
       currentIndex: 0,
     };
     
@@ -82,7 +90,7 @@ export class KeyManager {
   }
 
   /**
-   * 使用加权轮询算法选择一个健康的 API 密钥。
+   * 使用平滑加权轮询（SWRR）选择一个健康的 API 密钥。
    * @returns {string|null}
    */
   selectKey() {
@@ -90,25 +98,23 @@ export class KeyManager {
       this.initState();
     }
 
-    const healthyKeys = this.state.keys.filter(k => k.healthy);
-    if (healthyKeys.length === 0) {
+    const healthy = this.state.keys.filter(k => k.healthy && (k.weight || 1) > 0);
+    if (healthy.length === 0) {
       return null;
     }
 
-    const weightedList = [];
-    for (const key of healthyKeys) {
-      for (let i = 0; i < key.weight; i++) {
-        weightedList.push(key);
+    const totalWeight = healthy.reduce((sum, k) => sum + (k.weight || 1), 0);
+
+    let selected = null;
+    for (const k of healthy) {
+      k.currentWeight = (k.currentWeight || 0) + (k.weight || 1);
+      if (!selected || k.currentWeight > (selected.currentWeight || 0)) {
+        selected = k;
       }
     }
 
-    if (weightedList.length === 0) return null;
-
-    this.state.currentIndex = (this.state.currentIndex || 0) % weightedList.length;
-    const selected = weightedList[this.state.currentIndex];
-    
-    this.state.currentIndex = (this.state.currentIndex + 1) % weightedList.length;
-
+    if (!selected) return null;
+    selected.currentWeight -= totalWeight;
     return selected.key;
   }
 

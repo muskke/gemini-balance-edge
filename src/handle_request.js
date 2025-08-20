@@ -1,7 +1,7 @@
 import { handleVerification } from "./verify_keys.js";
 import openai from "./openai.mjs";
 import { KeyManager } from "./utils.js";
-import { logger } from "./logger.mjs";
+import { logger, redactHeaders } from "./logger.mjs";
 
 // 在模块级别获取服务器 KeyManager 的单例
 const serverApiKey = process.env.GEMINI_API_KEY;
@@ -16,12 +16,24 @@ export async function handleRequest(request) {
   const pathname = url.pathname;
   const search = url.search;
 
+  if (request.method === "OPTIONS") {
+    return new Response(null, {
+      status: 204,
+      headers: {
+        "Access-Control-Allow-Origin": "*",
+        "Access-Control-Allow-Methods": "*",
+        "Access-Control-Allow-Headers": "*",
+        "Access-Control-Max-Age": "86400",
+      },
+    });
+  }
+
   if (pathname === "/" || pathname === "/index.html") {
     return new Response(
       "Proxy is Running!  More Details: https://github.com/muskke/gemini-balance-edge",
       {
         status: 200,
-        headers: { "Content-Type": "text/html" },
+        headers: { "Content-Type": "text/html", "Access-Control-Allow-Origin": "*" },
       }
     );
   }
@@ -31,6 +43,17 @@ export async function handleRequest(request) {
   }
 
   if (pathname === "/verify" && request.method === "POST") {
+    const serverAuthToken = process.env.AUTH_TOKEN;
+    if (serverAuthToken) {
+      const authHeader = request.headers.get("Authorization");
+      const bearer = authHeader?.split(" ")[1];
+      if (bearer !== serverAuthToken) {
+        return new Response(JSON.stringify({ error: "Unauthorized" }), {
+          status: 401,
+          headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" },
+        });
+      }
+    }
     return handleVerification(request);
   }
 
@@ -64,8 +87,8 @@ export async function handleRequest(request) {
   } else {
     clientTokenStr = clientApiKey_OpenAI || clientApiKey_Gemini || "";
     logger.info("Using client-provided Gemini API Keys.");
-    // 为客户端密钥获取 KeyManager 实例
-    const clientKeyManager = KeyManager.getInstance(clientTokenStr, logger);
+    // 为客户端密钥使用临时 KeyManager（避免注册全局缓存）
+    const clientKeyManager = KeyManager.createEphemeral(clientTokenStr, logger);
     selectedKey = clientKeyManager.selectKey();
   }
 
@@ -79,13 +102,12 @@ export async function handleRequest(request) {
       { status: 500, headers: { "Content-Type": "application/json" } }
     );
   }
-  logger.info(`Selected API Key ending with ...${selectedKey.slice(-4)}`);
+   logger.info(`Selected API Key ending with ...${selectedKey.slice(-4)}`);
 
   // 根据请求类型设置头部
   const baseUrl = process.env.GEMINI_BASE_URL || "https://generativelanguage.googleapis.com";
   const isOpenAIRequest =
     url.pathname.endsWith("/chat/completions") ||
-    url.pathname.endsWith("/completions") ||
     url.pathname.endsWith("/embeddings") ||
     url.pathname.endsWith("/models");
 
@@ -120,8 +142,7 @@ export async function handleRequest(request) {
     const response = await fetch(targetUrl, {
       method: request.method,
       headers: newHeaders,
-      body: request.body, // 直接传递请求体，支持流式
-      duplex: 'half' // 允许在请求发送时接收响应
+      body: request.body // 直接传递请求体，遵循标准 Web Fetch
     });
 
     // 对于流式响应，立即返回，不等待完整内容
@@ -132,6 +153,7 @@ export async function handleRequest(request) {
       responseHeaders.set("Cache-Control", "no-cache");
       responseHeaders.set("Connection", "keep-alive");
       responseHeaders.set("Access-Control-Allow-Origin", "*");
+      responseHeaders.set("Referrer-Policy", "no-referrer");
       return new Response(response.body, {
         status: response.status,
         headers: responseHeaders,
@@ -142,23 +164,22 @@ export async function handleRequest(request) {
     const responseBody = await response.text();
     if (!response.ok) {
       logger.warn(
-        `API call failed with status ${
-          response.status
-        } for key ...${selectedKey.slice(-4)}`,
+        `API call failed with status ${response.status} for key ...${selectedKey.slice(-4)}`,
         {
           request: {
             url: targetUrl,
             method: request.method,
-            headers: Object.fromEntries(newHeaders.entries()),
+            headers: redactHeaders(Object.fromEntries(newHeaders.entries())),
           },
           response: {
             status: response.status,
-            headers: Object.fromEntries(response.headers.entries()),
-            body: responseBody,
+            headers: redactHeaders(Object.fromEntries(response.headers.entries())),
           },
         }
       );
-      await keyManager.markAsUnhealthy(selectedKey);
+      if (response.status === 401 || response.status === 403) {
+        await keyManager.markAsUnhealthy(selectedKey);
+      }
     } else {
       logger.info("Call Gemini Success (non-stream)");
     }
@@ -173,8 +194,6 @@ export async function handleRequest(request) {
     });
   } catch (error) {
     logger.error("Failed to fetch:", error.message);
-    // 网络错误或其他 fetch 异常，也将密钥标记为不健康
-    await keyManager.markAsUnhealthy(selectedKey);
     return new Response(
       JSON.stringify({
         error: {
@@ -182,7 +201,7 @@ export async function handleRequest(request) {
             "An unexpected error occurred while fetching the upstream API.",
         },
       }),
-      { status: 500, headers: { "Content-Type": "application/json" } }
+      { status: 500, headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" } }
     );
   } 
 }

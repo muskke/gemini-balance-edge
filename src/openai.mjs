@@ -76,6 +76,41 @@ const handleOPTIONS = async () => {
 const baseUrl = process.env.GEMINI_BASE_URL || "https://generativelanguage.googleapis.com";
 const apiVersion = process.env.GEMINI_API_VERSION || "v1beta";
 
+/**
+ * 规范化非流响应为标准 OpenAI Chat 格式
+ * 1) 若已符合（choices[0].message.content 存在）则原样返回
+ * 2) 若存在 choices[0].text 或 output_text，则组装为 assistant message
+ */
+function normalizeOpenAIChatResponse(data, model) {
+  try {
+    if (Array.isArray(data?.choices) && data.choices.length > 0 && data.choices[0]?.message?.content != null) {
+      return { ok: true, data };
+    }
+    const text = data?.choices?.[0]?.text ?? data?.output_text ?? null;
+    if (typeof text === "string" && text.length > 0) {
+      const now = Math.floor(Date.now() / 1000);
+      const normalized = {
+        id: data.id ?? `chatcmpl_${now}`,
+        object: "chat.completion",
+        created: data.created ?? now,
+        model,
+        choices: [
+          {
+            index: 0,
+            message: { role: "assistant", content: text },
+            finish_reason: data?.choices?.[0]?.finish_reason ?? "stop",
+          },
+        ],
+        usage: data.usage,
+      };
+      return { ok: true, data: normalized };
+    }
+    return { ok: false, reason: "missing_assistant_message" };
+  } catch (_e) {
+    return { ok: false, reason: "normalize_exception" };
+  }
+}
+
 async function handleModels(request) {
   let url = `${baseUrl}/${apiVersion}/openai/models`;
   const response = await fetch(url, {
@@ -136,7 +171,7 @@ async function handleCompletions(request) {
     });
   }
 
-  const responseBody = await response.text();
+  const raw = await response.text();
 
   logger.info("Received response from OpenAI compatible endpoint", {
     status: response.status,
@@ -146,8 +181,29 @@ async function handleCompletions(request) {
   const responseHeaders = new Headers(response.headers);
   responseHeaders.set("Access-Control-Allow-Origin", "*");
   responseHeaders.set("Referrer-Policy", "no-referrer");
-  
-  return new Response(responseBody, {
+
+  // 上游非 2xx：原样透传（保持调试信息）
+  if (!response.ok) {
+    return new Response(raw, {
+      status: response.status,
+      headers: responseHeaders,
+    });
+  }
+
+  // 上游 2xx：尽量规范化为标准 OpenAI Chat 格式
+  let bodyToSend = raw;
+  try {
+    const data = JSON.parse(raw);
+    const norm = normalizeOpenAIChatResponse(data, requestBody.model);
+    if (norm.ok) {
+      bodyToSend = JSON.stringify(norm.data);
+      responseHeaders.set("Content-Type", "application/json");
+    } // 否则保留上游原文，便于客户端诊断
+  } catch (_e) {
+    // 非 JSON 保持原样
+  }
+
+  return new Response(bodyToSend, {
     status: response.status,
     headers: responseHeaders,
   });

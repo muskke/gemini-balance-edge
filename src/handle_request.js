@@ -48,20 +48,6 @@ export async function handleRequest(request) {
     return new Response(null, { status: 204 });
   }
 
-  if (pathname === "/verify" && request.method === "POST") {
-    const serverAuthToken = process.env.AUTH_TOKEN;
-    if (serverAuthToken) {
-      const authHeader = request.headers.get("Authorization");
-      const bearer = authHeader?.split(" ")[1];
-      if (bearer !== serverAuthToken) {
-        return new Response(JSON.stringify({ error: "Unauthorized" }), {
-          status: 401,
-          headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" },
-        });
-      }
-    }
-    return handleVerification(request);
-  }
 
   const serverAuthToken = process.env.AUTH_TOKEN;
 
@@ -114,8 +100,7 @@ export async function handleRequest(request) {
   const baseUrl = process.env.GEMINI_BASE_URL || "https://generativelanguage.googleapis.com";
   const isOpenAIRequest =
     url.pathname.endsWith("/chat/completions") ||
-    url.pathname.endsWith("/embeddings") ||
-    url.pathname.endsWith("/models");
+    url.pathname.endsWith("/embeddings");
 
   if (isOpenAIRequest) {
     // OpenAI 格式

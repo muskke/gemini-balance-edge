@@ -35,10 +35,6 @@ export default {
         case pathname.endsWith("/embeddings"):
           assert(request.method === "POST");
           return handleEmbeddings(request).catch(errHandler);
-        case pathname.endsWith("/models"):
-          assert(request.method === "GET");
-          return handleModels(request)
-            .catch(errHandler);
         default:
           throw new HttpError("404 Not Found", 404);
       }
@@ -109,26 +105,6 @@ function normalizeOpenAIChatResponse(data, model) {
   } catch (_e) {
     return { ok: false, reason: "normalize_exception" };
   }
-}
-
-async function handleModels(request) {
-  let url = `${baseUrl}/${apiVersion}/openai/models`;
-  const response = await fetch(url, {
-    headers: {
-      Authorization: request.headers.get("Authorization"),
-      "Content-Type": "application/json",
-    },
-  });
-  const responseHeaders = new Headers(response.headers);
-  responseHeaders.set("Access-Control-Allow-Origin", "*");
-  responseHeaders.set("Referrer-Policy", "no-referrer");
-  responseHeaders.set("Content-Type", "application/json");
-
-  // 使用流式响应提高性能
-  return new Response(response.body, {
-    status: response.status,
-    headers: responseHeaders,
-  });
 }
 
 async function handleEmbeddings(request) {

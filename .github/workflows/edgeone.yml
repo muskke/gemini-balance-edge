@@ -1,0 +1,36 @@
+name: Deploy to EdgeOne Pages
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  deploy-edgeone:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22.11.0'
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Determine project name
+        id: proj
+        shell: bash
+        run: |
+          REPO_NAME=$(echo "${GITHUB_REPOSITORY}" | cut -d '/' -f2)
+          echo "name=${EDGEONE_PROJECT_NAME:-$REPO_NAME}" >> $GITHUB_OUTPUT
+        env:
+          EDGEONE_PROJECT_NAME: ${{ secrets.EDGEONE_PROJECT_NAME }}
+
+      - name: Deploy to EdgeOne Pages
+        run: |
+          npx edgeone pages deploy . -n "${{ steps.proj.outputs.name }}" -t "${EDGEONE_API_TOKEN}" -e production
+        env:
+          EDGEONE_API_TOKEN: ${{ secrets.EDGEONE_API_TOKEN }}

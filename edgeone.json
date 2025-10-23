@@ -1,0 +1,36 @@
+{
+  "rewrites": [
+    { "source": "/v1beta/openai/models", "destination": "/api/models.js" },
+    { "source": "/openai/models", "destination": "/api/models.js" },
+    { "source": "/v1/models", "destination": "/api/models.js" },
+    { "source": "/models", "destination": "/api/models.js" },
+    { "source": "/verify", "destination": "/api/verify.js" },
+    { "source": "/(.*)", "destination": "/api/edgeone_index.js" }
+  ],
+  "headers": [
+    {
+      "source": "/v1beta/openai/models",
+      "headers": [
+        { "key": "Cache-Control", "value": "public, max-age=3600, s-maxage=3600" }
+      ]
+    },
+    {
+      "source": "/openai/models",
+      "headers": [
+        { "key": "Cache-Control", "value": "public, max-age=3600, s-maxage=3600" }
+      ]
+    },
+    {
+      "source": "/v1/models",
+      "headers": [
+        { "key": "Cache-Control", "value": "public, max-age=3600, s-maxage=3600" }
+      ]
+    },
+    {
+      "source": "/models",
+      "headers": [
+        { "key": "Cache-Control", "value": "public, max-age=3600, s-maxage=3600" }
+      ]
+    }
+  ]
+}

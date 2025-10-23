@@ -4,6 +4,8 @@ on:
   push:
     branches:
       - main
+    paths-ignore:
+      - '.github/workflows/deploy.yml'  # 忽略deploy.yml的变更
 
 jobs:
   deploy-edgeone:
@@ -15,10 +17,20 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '22.11.0'
+          node-version: '18.x'
 
       - name: Install dependencies
         run: npm install
+
+      - name: Prepare deployment directory
+        run: |
+          mkdir -p ./dist
+          cp -r ./api ./dist/
+          cp -r ./src ./dist/
+          cp ./edgeone.json ./dist/
+          cp ./package.json ./dist/
+          echo "Deployment directory prepared"
+          ls -la ./dist
 
       - name: Determine project name
         id: proj
@@ -31,6 +43,23 @@ jobs:
 
       - name: Deploy to EdgeOne Pages
         run: |
-          npx edgeone pages deploy . -n "${{ steps.proj.outputs.name }}" -t "${EDGEONE_API_TOKEN}" -e production
+          echo "=== EdgeOne Deployment Debug Info ==="
+          echo "Project name: ${{ steps.proj.outputs.name }}"
+          echo "Deployment directory contents:"
+          ls -la ./dist
+          echo "EdgeOne config file:"
+          cat ./dist/edgeone.json
+          echo "=== Starting EdgeOne Deployment ==="
+          
+          # 检查API Token是否存在
+          if [ -z "${{ secrets.EDGEONE_API_TOKEN }}" ]; then
+            echo "ERROR: EDGEONE_API_TOKEN is not set!"
+            exit 1
+          fi
+          
+          # 执行部署
+          npx edgeone pages deploy ./dist -n "${{ steps.proj.outputs.name }}" -t "${{ secrets.EDGEONE_API_TOKEN }}" -e production
+          
+          echo "=== EdgeOne Deployment Completed ==="
         env:
           EDGEONE_API_TOKEN: ${{ secrets.EDGEONE_API_TOKEN }}

@@ -4,6 +4,8 @@ on:
   push:
     branches:
       - main
+    paths-ignore:
+      - '.github/workflows/edgeone.yml'  # 忽略edgeone.yml的变更
 
 jobs:
   deploy:

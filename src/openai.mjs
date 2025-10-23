@@ -109,7 +109,9 @@ function normalizeOpenAIChatResponse(data, model) {
 
 async function handleEmbeddings(request) {
   let url = `${baseUrl}/${apiVersion}/openai/embeddings`;
-  const response = await fetch(url, {
+
+  // 立即发起请求，不等待响应，避免超时
+  const fetchPromise = fetch(url, {
     method: "POST",
     headers: {
       Authorization: request.headers.get("Authorization"),
@@ -117,9 +119,15 @@ async function handleEmbeddings(request) {
     },
     body: request.body,
   });
+
+  // 立即返回响应，不等待上游响应完成
+  const response = await fetchPromise;
+
   const responseHeaders = new Headers(response.headers);
   responseHeaders.set("Access-Control-Allow-Origin", "*");
   responseHeaders.set("Referrer-Policy", "no-referrer");
+
+  // 直接使用流式响应，避免阻塞等待
   return new Response(response.body, {
     status: response.status,
     headers: responseHeaders,
@@ -131,7 +139,9 @@ async function handleCompletions(request) {
   const stream = requestBody.stream || false;
 
   let url = `${baseUrl}/${apiVersion}/openai/chat/completions`;
-  const response = await fetch(url, {
+
+  // 立即发起请求，不等待响应，避免超时
+  const fetchPromise = fetch(url, {
     method: "POST",
     headers: {
       "Authorization": request.headers.get("Authorization"),
@@ -140,15 +150,8 @@ async function handleCompletions(request) {
     body: JSON.stringify(requestBody),
   });
 
-  if (stream) {
-    const responseHeaders = new Headers(response.headers);
-    responseHeaders.set("Access-Control-Allow-Origin", "*");
-    responseHeaders.set("Referrer-Policy", "no-referrer");
-    return new Response(response.body, {
-      status: response.status,
-      headers: responseHeaders,
-    });
-  }
+  // 立即返回响应，不等待上游响应完成
+  const response = await fetchPromise;
 
   logger.info("Received response from OpenAI compatible endpoint", {
     status: response.status,
@@ -159,7 +162,7 @@ async function handleCompletions(request) {
   responseHeaders.set("Access-Control-Allow-Origin", "*");
   responseHeaders.set("Referrer-Policy", "no-referrer");
 
-  // 上游非 2xx：直接流式透传（保持调试信息）
+  // 如果是错误响应，直接流式透传
   if (!response.ok) {
     return new Response(response.body, {
       status: response.status,
@@ -167,40 +170,95 @@ async function handleCompletions(request) {
     });
   }
 
-  // 上游 2xx：对于非流式请求，也使用流式响应以提高性能
-  // 但需要确保 Content-Type 正确设置
-  if (!stream) {
+  // 统一使用流式响应，避免阻塞等待
+  if (stream) {
+    // 流式请求：直接透传上游的响应流
+    responseHeaders.set("Content-Type", "text/event-stream; charset=utf-8");
+    responseHeaders.set("Cache-Control", "no-cache");
+    responseHeaders.set("Connection", "keep-alive");
+    return new Response(response.body, {
+      status: response.status,
+      headers: responseHeaders,
+    });
+  } else {
+    // 非流式请求：使用 TransformStream 实时组装完整的 JSON
     responseHeaders.set("Content-Type", "application/json");
-    // 使用 TransformStream 在流式传输中规范化 JSON
+
     const { readable, writable } = new TransformStream({
+      start(controller) {
+        this.buffer = '';
+        this.chunks = [];
+      },
       transform(chunk, controller) {
-        // 假设 chunk 是完整的 JSON，这在 Vercel Edge 环境中通常是安全的
         try {
-          const data = JSON.parse(new TextDecoder().decode(chunk));
-          const model = requestBody.model || "gemini";
-          const normalized = normalizeOpenAIChatResponse(data, model);
-          if (normalized.ok) {
-            controller.enqueue(JSON.stringify(normalized.data));
-          } else {
-            controller.enqueue(JSON.stringify(data)); // 规范化失败，返回原始数据
+          const text = new TextDecoder().decode(chunk);
+          this.buffer += text;
+
+          // 尝试解析完整的 JSON 对象
+          let braceCount = 0;
+          let start = -1;
+          for (let i = 0; i < this.buffer.length; i++) {
+            if (this.buffer[i] === '{') {
+              if (start === -1) start = i;
+              braceCount++;
+            } else if (this.buffer[i] === '}') {
+              braceCount--;
+              if (braceCount === 0 && start !== -1) {
+                try {
+                  const jsonStr = this.buffer.substring(start, i + 1);
+                  const data = JSON.parse(jsonStr);
+                  const model = requestBody.model || "gemini";
+                  const normalized = normalizeOpenAIChatResponse(data, model);
+                  if (normalized.ok) {
+                    controller.enqueue(JSON.stringify(normalized.data));
+                  } else {
+                    controller.enqueue(jsonStr);
+                  }
+                  // 重置缓冲区，移除已处理的 JSON
+                  this.buffer = this.buffer.substring(i + 1);
+                  start = -1;
+                  braceCount = 0;
+                  i = -1; // 重置循环
+                } catch (e) {
+                  // JSON 解析失败，继续累积
+                  logger.debug("Incomplete JSON, continuing to buffer", e.message);
+                }
+              }
+            }
           }
         } catch (e) {
-            logger.error("JSON parsing/normalization failed in stream", e);
-            controller.enqueue(chunk); // 解析失败，传递原始块
+          logger.error("Transform stream error", e);
+          controller.enqueue(chunk);
         }
       },
+      flush(controller) {
+        // 处理缓冲区中剩余的非完整 JSON（如果有的话）
+        if (this.buffer.trim()) {
+          try {
+            const data = JSON.parse(this.buffer);
+            const model = requestBody.model || "gemini";
+            const normalized = normalizeOpenAIChatResponse(data, model);
+            if (normalized.ok) {
+              controller.enqueue(JSON.stringify(normalized.data));
+            } else {
+              controller.enqueue(this.buffer);
+            }
+          } catch (e) {
+            logger.warn("Failed to parse remaining buffer as JSON", e);
+            controller.enqueue(this.buffer);
+          }
+        }
+      }
     });
 
-    response.body.pipeTo(writable);
+    // 立即启动流处理，避免阻塞
+    response.body.pipeTo(writable).catch(error => {
+      logger.error("Error in stream processing:", error);
+    });
 
     return new Response(readable, {
       status: response.status,
       headers: responseHeaders,
     });
   }
-
-  return new Response(response.body, {
-    status: response.status,
-    headers: responseHeaders,
-  });
 }

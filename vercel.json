@@ -1,5 +1,4 @@
 {
-  "regions": ["sfo1"],
   "routes": [
     {
       "src": "/v1beta/openai/models",

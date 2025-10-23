@@ -195,17 +195,29 @@ async function handleCompletions(request) {
   // 但需要确保 Content-Type 正确设置
   if (!stream) {
     responseHeaders.set("Content-Type", "application/json");
-    const data = await response.json();
-    const model = requestBody.model || "gemini";
-    const normalized = normalizeOpenAIChatResponse(data, model);
-    if (normalized.ok) {
-      return new Response(JSON.stringify(normalized.data), {
-        status: response.status,
-        headers: responseHeaders,
-      });
-    }
-    // 如果规范化失败，返回原始数据
-    return new Response(JSON.stringify(data), {
+    // 使用 TransformStream 在流式传输中规范化 JSON
+    const { readable, writable } = new TransformStream({
+      transform(chunk, controller) {
+        // 假设 chunk 是完整的 JSON，这在 Vercel Edge 环境中通常是安全的
+        try {
+          const data = JSON.parse(new TextDecoder().decode(chunk));
+          const model = requestBody.model || "gemini";
+          const normalized = normalizeOpenAIChatResponse(data, model);
+          if (normalized.ok) {
+            controller.enqueue(JSON.stringify(normalized.data));
+          } else {
+            controller.enqueue(JSON.stringify(data)); // 规范化失败，返回原始数据
+          }
+        } catch (e) {
+            logger.error("JSON parsing/normalization failed in stream", e);
+            controller.enqueue(chunk); // 解析失败，传递原始块
+        }
+      },
+    });
+
+    response.body.pipeTo(writable);
+
+    return new Response(readable, {
       status: response.status,
       headers: responseHeaders,
     });

@@ -65,10 +65,10 @@ export async function handleRequest(request) {
 
   const serverAuthToken = process.env.AUTH_TOKEN;
 
-  // 异步触发健康检查，不阻塞主流程
-  // 使用 setTimeout 确保它在当前事件循环之后运行，避免阻塞响应
-  if (serverApiKey) {
+  // 以 1% 的概率异步触发健康检查，以减少高并发下的开销
+  if (serverApiKey && Math.random() < 0.01) {
     setTimeout(() => {
+      logger.info("Performing probabilistic health check.");
       keyManager.healthCheck().catch(logger.error);
     }, 0);
   }

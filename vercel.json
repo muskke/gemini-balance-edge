@@ -1,5 +1,34 @@
 {
+  "regions": ["sfo1"],
   "routes": [
+    {
+      "src": "/v1beta/openai/models",
+      "dest": "/api/vercel_index.js",
+      "headers": {
+        "cache-control": "public, max-age=3600, s-maxage=3600"
+      }
+    },
+    {
+      "src": "/openai/models",
+      "dest": "/api/vercel_index.js",
+      "headers": {
+        "cache-control": "public, max-age=3600, s-maxage=3600"
+      }
+    },
+    {
+      "src": "/v1/models",
+      "dest": "/api/vercel_index.js",
+      "headers": {
+        "cache-control": "public, max-age=3600, s-maxage=3600"
+      }
+    },
+    {
+      "src": "/models",
+      "dest": "/api/vercel_index.js",
+      "headers": {
+        "cache-control": "public, max-age=3600, s-maxage=3600"
+      }
+    },
     { "src": "/(.*)", "dest": "/api/vercel_index.js" }
   ]
 }

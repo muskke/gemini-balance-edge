@@ -224,13 +224,15 @@ export class KeyManager {
     if (!this.state) this.initState();
 
     const now = Date.now();
-    const fiveMinutes = 5 * 60 * 1000;
+    const checkInterval = this.config.healthCheck.interval;
 
     for (const key of this.state.keys) {
-      if (!key.healthy && (now - key.last_checked > fiveMinutes)) {
+      if (!key.healthy && (now - key.last_checked > checkInterval)) {
+        this.logger.info(`Performing health check for key ...${key.key.slice(-4)}`);
         const isNowHealthy = await this._testApiKey(key.key);
         if (isNowHealthy) {
-          key.healthy = true;
+          this.recoverKey(key.key);
+          this.logger.info(`Key ...${key.key.slice(-4)} recovered and is now healthy.`);
         }
         key.last_checked = now;
       }

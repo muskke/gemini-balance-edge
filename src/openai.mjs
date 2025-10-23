@@ -122,6 +122,9 @@ async function handleModels(request) {
   const responseHeaders = new Headers(response.headers);
   responseHeaders.set("Access-Control-Allow-Origin", "*");
   responseHeaders.set("Referrer-Policy", "no-referrer");
+  responseHeaders.set("Content-Type", "application/json");
+
+  // 使用流式响应提高性能
   return new Response(response.body, {
     status: response.status,
     headers: responseHeaders,
@@ -171,8 +174,6 @@ async function handleCompletions(request) {
     });
   }
 
-  const raw = await response.text();
-
   logger.info("Received response from OpenAI compatible endpoint", {
     status: response.status,
     headers: redactHeaders(Object.fromEntries(response.headers.entries())),
@@ -182,28 +183,35 @@ async function handleCompletions(request) {
   responseHeaders.set("Access-Control-Allow-Origin", "*");
   responseHeaders.set("Referrer-Policy", "no-referrer");
 
-  // 上游非 2xx：原样透传（保持调试信息）
+  // 上游非 2xx：直接流式透传（保持调试信息）
   if (!response.ok) {
-    return new Response(raw, {
+    return new Response(response.body, {
       status: response.status,
       headers: responseHeaders,
     });
   }
 
-  // 上游 2xx：尽量规范化为标准 OpenAI Chat 格式
-  let bodyToSend = raw;
-  try {
-    const data = JSON.parse(raw);
-    const norm = normalizeOpenAIChatResponse(data, requestBody.model);
-    if (norm.ok) {
-      bodyToSend = JSON.stringify(norm.data);
-      responseHeaders.set("Content-Type", "application/json");
-    } // 否则保留上游原文，便于客户端诊断
-  } catch (_e) {
-    // 非 JSON 保持原样
+  // 上游 2xx：对于非流式请求，也使用流式响应以提高性能
+  // 但需要确保 Content-Type 正确设置
+  if (!stream) {
+    responseHeaders.set("Content-Type", "application/json");
+    const data = await response.json();
+    const model = requestBody.model || "gemini";
+    const normalized = normalizeOpenAIChatResponse(data, model);
+    if (normalized.ok) {
+      return new Response(JSON.stringify(normalized.data), {
+        status: response.status,
+        headers: responseHeaders,
+      });
+    }
+    // 如果规范化失败，返回原始数据
+    return new Response(JSON.stringify(data), {
+      status: response.status,
+      headers: responseHeaders,
+    });
   }
 
-  return new Response(bodyToSend, {
+  return new Response(response.body, {
     status: response.status,
     headers: responseHeaders,
   });

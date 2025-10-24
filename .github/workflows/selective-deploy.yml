@@ -24,23 +24,23 @@ jobs:
           CHANGED_FILES=$(git diff --name-only HEAD~1 HEAD)
           echo "Changed files: $CHANGED_FILES"
           
+          # 检查是否有源代码文件变更（同时部署两个平台）
+          if echo "$CHANGED_FILES" | grep -E '(api/|src/|package\.json|vercel\.json|edgeone\.json|README\.md|LICENSE|node-functions/)'; then
+            echo "vercel=true" >> $GITHUB_OUTPUT
+            echo "edgeone=true" >> $GITHUB_OUTPUT
+            echo "Deployment strategy: Both platforms (source files updated)"
           # 检查是否只更新了deploy.yml
-          if echo "$CHANGED_FILES" | grep -q "^\.github/workflows/deploy\.yml$" && ! echo "$CHANGED_FILES" | grep -q "edgeone"; then
+          elif echo "$CHANGED_FILES" | grep -q "^\.github/workflows/deploy\.yml$" && ! echo "$CHANGED_FILES" | grep -E '(api/|src/|package\.json|vercel\.json|edgeone\.json|README\.md|LICENSE|node-functions/)'; then
             echo "vercel=true" >> $GITHUB_OUTPUT
             echo "edgeone=false" >> $GITHUB_OUTPUT
             echo "Deployment strategy: Vercel only (deploy.yml updated)"
           # 检查是否只更新了edgeone.yml
-          elif echo "$CHANGED_FILES" | grep -q "^\.github/workflows/edgeone\.yml$" && ! echo "$CHANGED_FILES" | grep -q "deploy"; then
+          elif echo "$CHANGED_FILES" | grep -q "^\.github/workflows/edgeone\.yml$" && ! echo "$CHANGED_FILES" | grep -E '(api/|src/|package\.json|vercel\.json|edgeone\.json|README\.md|LICENSE|node-functions/)'; then
             echo "vercel=false" >> $GITHUB_OUTPUT
             echo "edgeone=true" >> $GITHUB_OUTPUT
             echo "Deployment strategy: EdgeOne only (edgeone.yml updated)"
-          # 检查是否有源代码文件变更（同时部署两个平台）
-          elif echo "$CHANGED_FILES" | grep -E '(api/|src/|package\.json|vercel\.json|edgeone\.json|README\.md|LICENSE|node-functions/)'; then
-            echo "vercel=true" >> $GITHUB_OUTPUT
-            echo "edgeone=true" >> $GITHUB_OUTPUT
-            echo "Deployment strategy: Both platforms (source files updated)"
           # 检查是否只更新了selective-deploy.yml（不部署）
-          elif echo "$CHANGED_FILES" | grep -q "^\.github/workflows/selective-deploy\.yml$" && ! echo "$CHANGED_FILES" | grep -E '\.(api/|src/|package\.json|vercel\.json|edgeone\.json|README\.md|LICENSE)$'; then
+          elif echo "$CHANGED_FILES" | grep -q "^\.github/workflows/selective-deploy\.yml$" && ! echo "$CHANGED_FILES" | grep -E '(api/|src/|package\.json|vercel\.json|edgeone\.json|README\.md|LICENSE|node-functions/)'; then
             echo "vercel=false" >> $GITHUB_OUTPUT
             echo "edgeone=false" >> $GITHUB_OUTPUT
             echo "Deployment strategy: No deployment (only selective-deploy.yml updated)"

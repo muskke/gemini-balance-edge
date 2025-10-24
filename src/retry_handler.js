@@ -44,13 +44,14 @@ export class RetryHandler {
     const config = errorCode === 503 ? this.config.serviceUnavailable : this.config.retry;
     const maxAttempts = config.maxRetries || config.maxAttempts;
 
-    // 对于 503 错误，使用特殊配置
-    if (errorCode === 503) {
+    // 对于 503 和 429 错误，使用特殊配置
+    if (errorCode === 503 || errorCode === 429) {
       return attempt <= maxAttempts;
     }
 
     // 对于其他错误，使用通用配置
-    return attempt <= maxAttempts;
+    const retryableErrors = [500, 502, 504]; // 可重试的通用错误
+    return retryableErrors.includes(errorCode) && attempt <= maxAttempts;
   }
 
   /**
@@ -93,9 +94,9 @@ export class RetryHandler {
           throw new Error(`API 调用失败，已达到最大重试次数: ${statusCode} - ${errorText}`);
         }
 
-        // 对于 400 错误，不重试
-        if (statusCode === 400) {
-          throw new Error(`请求参数错误: ${errorText}`);
+        // 对于 400/401/403 错误，不重试
+        if ([400, 401, 403].includes(statusCode)) {
+          throw new Error(`不可重试的客户端错误: ${statusCode} - ${errorText}`);
         }
 
         // 计算延迟时间

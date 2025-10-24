@@ -150,7 +150,12 @@ export async function handleRequest(request) {
       body: request.body,
     });
     logger.debug("Forwarding to OpenAI compatible endpoint.");
-    const response = await openai.fetch(newRequest);
+    
+    // 使用性能优化器处理请求
+    const response = await performanceOptimizer.optimizeRequest(newRequest, async (req) => {
+      return await openai.fetch(req);
+    });
+
     const openAIRequestEndTime = performance.now();
     logger.info(`OpenAI compatible endpoint request took ${ (openAIRequestEndTime - openAIRequestStartTime).toFixed(2) }ms`);
     return response;
@@ -170,10 +175,14 @@ export async function handleRequest(request) {
 
 
   try {
-    const response = await fetch(targetUrl, {
+    const geminiRequest = new Request(targetUrl, {
       method: request.method,
       headers: newHeaders,
-      body: request.body // 直接传递请求体，遵循标准 Web Fetch
+      body: request.body
+    });
+
+    const response = await performanceOptimizer.optimizeRequest(geminiRequest, async (req) => {
+      return await fetch(req);
     });
 
     // 对于流式响应，使用优化的流式处理器

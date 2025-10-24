@@ -2,10 +2,25 @@ import { handleVerification } from "./verify_keys.js";
 import openai from "./openai.mjs";
 import { KeyManager } from "./utils.js";
 import { logger, redactHeaders } from "./logger.mjs";
+import { StreamHandler } from "./stream_handler.js";
+import { RetryHandler } from "./retry_handler.js";
+import { MonitoringSystem } from "./monitoring.js";
+import { MonitorEndpoint } from "./monitor_endpoint.js";
+import { PerformanceOptimizer } from "./performance_optimizer.js";
 
 // 在模块级别获取服务器 KeyManager 的单例
 const serverApiKey = process.env.GEMINI_API_KEY;
 const keyManager = KeyManager.getInstance(serverApiKey, logger);
+const streamHandler = new StreamHandler();
+const retryHandler = new RetryHandler(keyManager);
+const monitoringSystem = new MonitoringSystem();
+const monitorEndpoint = new MonitorEndpoint(monitoringSystem, keyManager, streamHandler);
+const performanceOptimizer = new PerformanceOptimizer({
+  enableCaching: true,
+  maxConcurrentRequests: 20,
+  requestTimeout: 30000
+});
+
 if (serverApiKey) {
   // 首次初始化后，立即触发一次健康检查，之后每次请求也触发
   setTimeout(() => keyManager.healthCheck().catch(logger.error), 0);
@@ -48,6 +63,10 @@ export async function handleRequest(request) {
     return new Response(null, { status: 204 });
   }
 
+  // 监控端点
+  if (pathname.startsWith("/monitor")) {
+    return monitorEndpoint.handleMonitorRequest(request);
+  }
 
   const serverAuthToken = process.env.AUTH_TOKEN;
 
@@ -85,7 +104,9 @@ export async function handleRequest(request) {
   }
 
   if (!selectedKey) {
-    selectedKey = keyManager.selectKey();
+    // 使用性能优化器优化密钥选择
+    const availableKeys = keyManager.state ? keyManager.state.keys.map(k => k.key) : [];
+    selectedKey = performanceOptimizer.optimizeKeySelection(availableKeys) || keyManager.selectKey();
   }
 
   if (!selectedKey) {
@@ -141,19 +162,10 @@ export async function handleRequest(request) {
       body: request.body // 直接传递请求体，遵循标准 Web Fetch
     });
 
-    // 对于流式响应，立即返回，不等待完整内容
+    // 对于流式响应，使用优化的流式处理器
     if (isStream && response.ok) {
       logger.info("Streaming response started.");
-      const responseHeaders = new Headers(response.headers);
-      responseHeaders.set("Content-Type", "text/event-stream; charset=utf-8");
-      responseHeaders.set("Cache-Control", "no-cache");
-      responseHeaders.set("Connection", "keep-alive");
-      responseHeaders.set("Access-Control-Allow-Origin", "*");
-      responseHeaders.set("Referrer-Policy", "no-referrer");
-      return new Response(response.body, {
-        status: response.status,
-        headers: responseHeaders,
-      });
+      return streamHandler.createStreamResponse(response, selectedKey);
     }
 
     // 对于非流式响应或错误响应，立即返回流式响应
@@ -192,6 +204,15 @@ export async function handleRequest(request) {
       totalTime: `${totalTime.toFixed(2)}ms`,
       keyUsed: `...${selectedKey.slice(-4)}`
     });
+
+    // 记录监控指标
+    monitoringSystem.recordRequest({
+      statusCode: response.status,
+      responseTime: totalTime,
+      keyUsed: selectedKey,
+      isStream: isStream
+    });
+
     return new Response(response.body, {
       status: response.status,
       headers: responseHeaders,
@@ -203,6 +224,16 @@ export async function handleRequest(request) {
       error: error.message,
       totalTime: `${totalTime.toFixed(2)}ms`
     });
+
+    // 记录错误监控指标
+    monitoringSystem.recordError(error, selectedKey);
+    monitoringSystem.recordRequest({
+      statusCode: 500,
+      responseTime: totalTime,
+      keyUsed: selectedKey,
+      error: error
+    });
+
     return new Response(
       JSON.stringify({
         error: {

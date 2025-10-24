@@ -118,6 +118,9 @@ export class KeyManager {
     // 尝试权重恢复
     this._attemptWeightRecovery();
 
+    // 检查临时不健康的密钥是否应该恢复
+    this._checkTemporaryRecovery();
+
     // 获取可用的密钥（健康的或动态权重大于最小值的）
     const available = this.state.keys.filter(k =>
       k.healthy || k.dynamicWeight >= this.config.recovery.minWeight
@@ -137,6 +140,49 @@ export class KeyManager {
 
     // 如果没有健康的密钥，从有最小权重的密钥中选择
     this.logger.info('没有健康的密钥，从降权密钥中选择');
+    return this._selectFromAvailable(available);
+  }
+
+  /**
+   * 智能密钥选择 - 考虑最近错误和性能
+   * @param {Object} context - 选择上下文
+   * @returns {string|null}
+   */
+  selectKeySmart(context = {}) {
+    if (!this.state) {
+      this.initState();
+    }
+
+    const { avoidRecentErrors = true, preferStableKeys = true } = context;
+    
+    // 尝试权重恢复
+    this._attemptWeightRecovery();
+    this._checkTemporaryRecovery();
+
+    // 获取可用的密钥
+    let available = this.state.keys.filter(k =>
+      k.healthy || k.dynamicWeight >= this.config.recovery.minWeight
+    );
+
+    if (available.length === 0) {
+      this.logger.warn('所有 API 密钥都不可用，执行全局重置');
+      this._resetAllKeys();
+      return this._selectFromAvailable(this.state.keys);
+    }
+
+    // 如果避免最近错误，过滤掉最近出错的密钥
+    if (avoidRecentErrors) {
+      const recentErrorThreshold = Date.now() - 300000; // 5分钟内
+      available = available.filter(k => 
+        !k.lastErrorCode || k.last_checked < recentErrorThreshold
+      );
+    }
+
+    // 如果偏好稳定密钥，优先选择错误次数少的
+    if (preferStableKeys && available.length > 1) {
+      available.sort((a, b) => a.errorCount - b.errorCount);
+    }
+
     return this._selectFromAvailable(available);
   }
 
@@ -198,13 +244,38 @@ export class KeyManager {
 
     keyToUpdate.dynamicWeight = newWeight;
 
+    // 智能健康状态管理
+    this._updateKeyHealthStatus(keyToUpdate, errorCode);
+  }
+
+  /**
+   * 更新密钥健康状态
+   * @private
+   */
+  _updateKeyHealthStatus(keyToUpdate, errorCode) {
+    const wasHealthy = keyToUpdate.healthy;
+    
     // 严重错误直接标记为不健康
     if (errorCode === 401 || errorCode === 403) {
       keyToUpdate.healthy = false;
-      this.logger.warn(`密钥 ...${apiKey.slice(-4)} 因认证/权限错误被标记为不健康`);
-    } else if (keyToUpdate.dynamicWeight <= this.config.recovery.minWeight) {
+      this.logger.warn(`密钥 ...${keyToUpdate.key.slice(-4)} 因认证/权限错误被标记为不健康`);
+    } 
+    // 503 错误特殊处理 - 临时标记为不健康，但快速恢复
+    else if (errorCode === 503) {
       keyToUpdate.healthy = false;
-      this.logger.warn(`密钥 ...${apiKey.slice(-4)} 因权重过低被标记为不健康`);
+      keyToUpdate.temporaryUnhealthy = true; // 标记为临时不健康
+      keyToUpdate.temporaryUnhealthyUntil = Date.now() + 60000; // 1分钟后恢复
+      this.logger.warn(`密钥 ...${keyToUpdate.key.slice(-4)} 因 503 错误被临时标记为不健康`);
+    }
+    // 权重过低时标记为不健康
+    else if (keyToUpdate.dynamicWeight <= this.config.recovery.minWeight) {
+      keyToUpdate.healthy = false;
+      this.logger.warn(`密钥 ...${keyToUpdate.key.slice(-4)} 因权重过低被标记为不健康`);
+    }
+
+    // 记录健康状态变化
+    if (wasHealthy && !keyToUpdate.healthy) {
+      this.logger.info(`密钥 ...${keyToUpdate.key.slice(-4)} 健康状态: 健康 -> 不健康`);
     }
   }
 
@@ -267,6 +338,23 @@ export class KeyManager {
           key.healthy = true;
           this.logger.info(`密钥 ...${key.key.slice(-4)} 权重恢复到 ${key.dynamicWeight.toFixed(2)}，重新标记为健康`);
         }
+      }
+    }
+  }
+
+  /**
+   * 检查临时不健康的密钥是否应该恢复
+   * @private
+   */
+  _checkTemporaryRecovery() {
+    const now = Date.now();
+
+    for (const key of this.state.keys) {
+      if (key.temporaryUnhealthy && key.temporaryUnhealthyUntil && now >= key.temporaryUnhealthyUntil) {
+        key.healthy = true;
+        key.temporaryUnhealthy = false;
+        key.temporaryUnhealthyUntil = null;
+        this.logger.info(`密钥 ...${key.key.slice(-4)} 临时不健康状态已恢复`);
       }
     }
   }

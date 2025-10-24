@@ -7,7 +7,7 @@ export const KEY_MANAGER_CONFIG = {
   // 错误码到权重惩罚的映射
   errorPenalties: {
     429: 0.5,    // 速率限制，中等惩罚
-    503: 0.3,    // 服务不可用，重度惩罚
+    503: 0.2,    // 服务不可用，极重惩罚（临时性错误）
     500: 0.7,    // 服务器错误，轻度惩罚
     502: 0.6,    // 网关错误，中度惩罚
     504: 0.6,    // 网关超时，中度惩罚
@@ -35,10 +35,20 @@ export const KEY_MANAGER_CONFIG = {
 
   // 重试配置
   retry: {
-    maxAttempts: 3,           // 最大重试次数
+    maxAttempts: 5,           // 最大重试次数
     baseDelay: 1000,          // 基础延迟时间（1秒）
     exponentialBackoff: true, // 是否使用指数退避
-    maxDelay: 10000          // 最大延迟时间（10秒）
+    maxDelay: 30000,          // 最大延迟时间（30秒）
+    jitter: true              // 添加随机抖动避免雷群效应
+  },
+
+  // 503 错误特殊处理配置
+  serviceUnavailable: {
+    maxRetries: 3,            // 503 错误最大重试次数
+    baseDelay: 2000,          // 基础延迟时间（2秒）
+    maxDelay: 15000,          // 最大延迟时间（15秒）
+    backoffMultiplier: 2.0,   // 退避倍数
+    jitterRange: 0.1          // 抖动范围（±10%）
   },
 
   // 日志配置

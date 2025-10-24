@@ -32,21 +32,9 @@ jobs:
 
       - name: Install EdgeOne CLI
         run: |
-          # 尝试多种方式安装 EdgeOne CLI
-          echo "Attempting to install EdgeOne CLI..."
-          
-          # 方法1: 尝试通过 npm 安装
-          if npm install -g @edgeone/cli 2>/dev/null; then
-            echo "EdgeOne CLI installed via npm"
-          # 方法2: 尝试通过 yarn 安装
-          elif yarn global add @edgeone/cli 2>/dev/null; then
-            echo "EdgeOne CLI installed via yarn"
-          # 方法3: 尝试直接下载二进制文件
-          elif curl -L https://github.com/edgeone/cli/releases/latest/download/edgeone-cli-linux-amd64 -o /usr/local/bin/edgeone && chmod +x /usr/local/bin/edgeone; then
-            echo "EdgeOne CLI installed via direct download"
-          else
-            echo "Warning: Could not install EdgeOne CLI, will try to use npx"
-          fi
+          echo "Installing EdgeOne CLI..."
+          # EdgeOne CLI 通过 npx 使用，无需全局安装
+          npx edgeone --version || echo "EdgeOne CLI will be used via npx"
 
       - name: Prepare deployment directory
         run: |
@@ -102,20 +90,9 @@ jobs:
             exit 1
           fi
           
-          # 执行部署 - 尝试多种方式
-          if command -v edgeone >/dev/null 2>&1; then
-            echo "Using globally installed EdgeOne CLI"
-            edgeone pages deploy ./dist -n "${{ steps.proj.outputs.name }}" -t "${{ secrets.EDGEONE_API_TOKEN }}" -e production
-          elif npx @edgeone/cli pages deploy ./dist -n "${{ steps.proj.outputs.name }}" -t "${{ secrets.EDGEONE_API_TOKEN }}" -e production 2>/dev/null; then
-            echo "Using npx EdgeOne CLI"
-          else
-            echo "ERROR: EdgeOne CLI not found. Please check the installation."
-            echo "Available commands:"
-            which edgeone || echo "edgeone command not found"
-            echo "Trying alternative deployment method..."
-            # 这里可以添加其他部署方式，比如直接上传到 EdgeOne API
-            exit 1
-          fi
+          # 执行部署 - 使用 npx edgeone
+          echo "Deploying to EdgeOne Pages..."
+          npx edgeone pages deploy ./dist -n "${{ steps.proj.outputs.name }}" -t "${{ secrets.EDGEONE_API_TOKEN }}" -e production
           
           echo "=== EdgeOne Deployment Completed ==="
         env:

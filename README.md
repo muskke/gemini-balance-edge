@@ -89,6 +89,59 @@ Gemini Balance Edge 是一个部署在 Vercel Edge Network 上的高性能 API �
     - 添加完环境变量后，Deno Deploy 会自动触发一次新的部署。
     - 部署成功后，您将获得一个 `*.deno.dev` 的域名。请使用此域名作为新的 API 端点。
 
+### EdgeOne Pages 部署 (推荐用于国内访问)
+[![Deploy to EdgeOne](https://img.shields.io/badge/Deploy%20to-EdgeOne-blue)](https://console.cloud.tencent.com/edgeone/pages)
+
+EdgeOne Pages 是腾讯云提供的静态网站托管服务，特别适合国内用户使用，具有低延迟、高可用性的特点。
+
+**重要**: EdgeOne Pages 使用 Pages Functions 来处理服务端逻辑，项目已包含 `node-functions/` 目录和相应的函数文件。
+
+1. **登录 EdgeOne 控制台**:
+    - 访问 [EdgeOne Pages 控制台](https://console.cloud.tencent.com/edgeone/pages) 并使用您的腾讯云账号登录。
+
+2. **创建 Pages 项目**:
+    - 在控制台中，点击 "**Pages**" -> "**新建项目**"。
+    - 选择 "**从 Git 仓库导入**" 或 "**上传文件**"。
+
+3. **配置项目设置**:
+    - **项目名称**: 输入一个描述性的名称，如 `gemini-balance-edge`。
+    - **构建命令**: 如果使用 Git 仓库，可以配置构建命令（可选）。
+    - **输出目录**: 设置为项目根目录。
+
+4. **配置环境变量**:
+    - 在项目设置中，找到 "**环境变量**" 选项。
+    - 添加以下环境变量：
+        - `GEMINI_API_KEY`: 您的 Google Gemini API 密钥 (多个密钥请用逗号隔开)。
+        - `AUTH_TOKEN`: (可选) 您为服务设置的访问令牌。
+        - `GEMINI_BASE_URL`: (可选) Gemini API 基址。
+        - `GEMINI_API_VERSION`: (可选) Gemini API 版本。
+
+5. **部署项目**:
+    - 如果使用 Git 仓库，EdgeOne 会自动检测 `edgeone.json` 配置文件。
+    - 如果上传文件，确保包含 `edgeone.json` 配置文件。
+    - 点击 "**部署**" 开始部署过程。
+
+6. **配置路由规则**:
+    - 项目中的 `edgeone.json` 文件已配置了路由重写规则：
+        - `/v1beta/openai/models` → `/node-functions/models.js`
+        - `/openai/models` → `/node-functions/models.js`
+        - `/v1/models` → `/node-functions/models.js`
+        - `/models` → `/node-functions/models.js`
+        - `/verify` → `/node-functions/verify.js`
+        - `/(.*)` → `/node-functions/edgeone_index.js`
+
+7. **获取访问域名**:
+    - 部署完成后，您将获得一个 EdgeOne Pages 提供的域名。
+    - 使用此域名作为您的 API 端点。
+
+8. **国内访问优化**:
+    - EdgeOne Pages 在国内有多个节点，访问速度较快。
+    - 支持自定义域名绑定，提升用户体验。
+
+**注意**: 
+- EdgeOne Pages 使用 Pages Functions 架构，需要将 API 文件放在 `node-functions/` 目录中
+- 根据 [EdgeOne Pages 文档](https://pages.edgeone.ai/zh/document/pages-functions-overview)，Node Functions 提供完整的 Node.js 兼容性，适合深度依赖 Node.js 生态的业务场景
+
 ## 本地调试
 
 1.  安装 Node.js 和 Vercel CLI: `npm install -g vercel`
@@ -206,6 +259,7 @@ SSE 事件：
 - Vercel：一键部署后在环境变量中配置 GEMINI_API_KEY（支持权重）、可选 AUTH_TOKEN 等。注意：当前无 KV 持久化
 - Netlify：功能类似，无持久化
 - Deno Deploy：推荐用于长时间交互（Function Calling 等），无平台超时限制。同样为内存态
+- EdgeOne：推荐用于国内用户，低延迟、高可用性，支持自定义域名
 
 ## 本地开发
 

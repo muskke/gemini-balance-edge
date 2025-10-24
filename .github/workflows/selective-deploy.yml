@@ -34,29 +34,21 @@ jobs:
             echo "vercel=false" >> $GITHUB_OUTPUT
             echo "edgeone=true" >> $GITHUB_OUTPUT
             echo "Deployment strategy: EdgeOne only (edgeone.yml updated)"
-          # 检查是否有其他相关文件变更
+          # 检查是否有源代码文件变更（同时部署两个平台）
           elif echo "$CHANGED_FILES" | grep -E '\.(api/|src/|package\.json|vercel\.json|edgeone\.json|README\.md|LICENSE)$'; then
             echo "vercel=true" >> $GITHUB_OUTPUT
             echo "edgeone=true" >> $GITHUB_OUTPUT
             echo "Deployment strategy: Both platforms (source files updated)"
-          # 如果只有工作流文件更新，根据具体文件决定
-          elif echo "$CHANGED_FILES" | grep -q "\.github/workflows/"; then
-            if echo "$CHANGED_FILES" | grep -q "deploy\.yml"; then
-              echo "vercel=true" >> $GITHUB_OUTPUT
-            else
-              echo "vercel=false" >> $GITHUB_OUTPUT
-            fi
-            if echo "$CHANGED_FILES" | grep -q "edgeone\.yml"; then
-              echo "edgeone=true" >> $GITHUB_OUTPUT
-            else
-              echo "edgeone=false" >> $GITHUB_OUTPUT
-            fi
-            echo "Deployment strategy: Workflow-specific deployment"
-          # 默认情况：同时部署到两个平台
+          # 检查是否只更新了selective-deploy.yml（不部署）
+          elif echo "$CHANGED_FILES" | grep -q "^\.github/workflows/selective-deploy\.yml$" && ! echo "$CHANGED_FILES" | grep -E '\.(api/|src/|package\.json|vercel\.json|edgeone\.json|README\.md|LICENSE)$'; then
+            echo "vercel=false" >> $GITHUB_OUTPUT
+            echo "edgeone=false" >> $GITHUB_OUTPUT
+            echo "Deployment strategy: No deployment (only selective-deploy.yml updated)"
+          # 其他情况：不部署
           else
-            echo "vercel=true" >> $GITHUB_OUTPUT
-            echo "edgeone=true" >> $GITHUB_OUTPUT
-            echo "Deployment strategy: Both platforms (default)"
+            echo "vercel=false" >> $GITHUB_OUTPUT
+            echo "edgeone=false" >> $GITHUB_OUTPUT
+            echo "Deployment strategy: No deployment (no relevant changes)"
           fi
           
           echo "Final decision - Vercel: ${{ steps.changes.outputs.vercel }}, EdgeOne: ${{ steps.changes.outputs.edgeone }}"

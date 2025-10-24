@@ -1,11 +1,11 @@
 {
   "rewrites": [
-    { "source": "/v1beta/openai/models", "destination": "/api/models.js" },
-    { "source": "/openai/models", "destination": "/api/models.js" },
-    { "source": "/v1/models", "destination": "/api/models.js" },
-    { "source": "/models", "destination": "/api/models.js" },
-    { "source": "/verify", "destination": "/api/verify.js" },
-    { "source": "/(.*)", "destination": "/api/edgeone_index.js" }
+    { "source": "/v1beta/openai/models", "destination": "/node-functions/models.js" },
+    { "source": "/openai/models", "destination": "/node-functions/models.js" },
+    { "source": "/v1/models", "destination": "/node-functions/models.js" },
+    { "source": "/models", "destination": "/node-functions/models.js" },
+    { "source": "/verify", "destination": "/node-functions/verify.js" },
+    { "source": "/(.*)", "destination": "/node-functions/edgeone_index.js" }
   ],
   "headers": [
     {

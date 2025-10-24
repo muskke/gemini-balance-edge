@@ -22,7 +22,8 @@
 1. **只更新 `deploy.yml`** → 仅部署到 Vercel
 2. **只更新 `edgeone.yml`** → 仅部署到 EdgeOne
 3. **更新源代码文件**（`api/`、`src/`、`package.json`、`vercel.json`、`edgeone.json`、`README.md`、`LICENSE`）→ 同时部署到两个平台
-4. **其他任何变更**（包括两个工作流文件都未更新的情况）→ 同时部署到两个平台（默认行为）
+4. **只更新 `selective-deploy.yml`** → 不部署（避免循环部署）
+5. **其他情况** → 不部署（避免不必要的部署）
 
 #### 具体场景示例
 
@@ -31,8 +32,9 @@
 - ✅ 修改 `src/handle_request.js` → 同时部署两个平台
 - ✅ 修改 `package.json` → 同时部署两个平台
 - ✅ 修改 `README.md` → 同时部署两个平台
-- ✅ 两个工作流文件都没有修改 → 同时部署两个平台（默认）
-- ✅ 同时修改 `deploy.yml` 和 `edgeone.yml` → 同时部署两个平台
+- ❌ 只修改 `selective-deploy.yml` → 不部署（避免循环）
+- ❌ 修改 `.gitignore` → 不部署（无关文件）
+- ❌ 其他无关文件变更 → 不部署
 
 ### 3. 独立部署 (可选)
 

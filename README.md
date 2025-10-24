@@ -41,7 +41,11 @@ Gemini Balance Edge 是一个部署在 Vercel Edge Network 上的高性能 API �
 [![Deploy to Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https://github.com/muskke/gemini-balance-edge)
 
 1.  点击上方的 "Deploy" 按钮。
-2.  在 Vercel 的项目设置中，找到 "Environment Variables" 选项，添加你的 API Key。
+2.  在 Vercel 的项目设置中，添加环境变量（见下文）。
+3.  路由说明：`vercel.json` 现采用统一入口——
+   - `/verify` → `/api/verify.js`
+   - `/(.*)` → `/api/vercel_index.js`
+4.  在 Vercel 的项目设置中，找到 "Environment Variables" 选项，添加你的 API Key。
     *   **变量名**: `GEMINI_API_KEY`
     *   **值**: 你的 API Key。多个 Key 请用逗号隔开。
     *   **带权重的 Key**: 你可以为 Key 设置权重，格式为 `key1:10,key2:5,key3`。权重越高的 Key 被使用的频率越高。没有设置权重的 Key 默认为 1。
@@ -122,13 +126,10 @@ EdgeOne Pages 是腾讯云提供的静态网站托管服务，特别适合国内
     - 点击 "**部署**" 开始部署过程。
 
 6. **配置路由规则**:
-    - 项目中的 `edgeone.json` 文件已配置了路由重写规则：
-        - `/v1beta/openai/models` → `/node-functions/models.js`
-        - `/openai/models` → `/node-functions/models.js`
-        - `/v1/models` → `/node-functions/models.js`
-        - `/models` → `/node-functions/models.js`
-        - `/verify` → `/node-functions/verify.js`
-        - `/(.*)` → `/node-functions/edgeone_index.js`
+- 项目中的 `edgeone.json` 文件已简化为统一入口：
+  - `/verify` → `/node-functions/verify.js`
+  - `/(.*)` → `/node-functions/edgeone_index.js`
+- 模型列表与所有 API 路由由统一入口根据路径自动判断，并设置正确的鉴权头（OpenAI Authorization 或 Gemini x-goog-api-key）。
 
 7. **获取访问域名**:
     - 部署完成后，您将获得一个 EdgeOne Pages 提供的域名。
@@ -174,10 +175,12 @@ EdgeOne Pages 是腾讯云提供的静态网站托管服务，特别适合国内
 > 1. **Gemini 原生格式 (`x-goog-api-key`)**:
 >     - **客户端密钥**: 在请求头中提供 `x-goog-api-key: <YOUR_GEMINI_API_KEY>`。
 >     - **服务端密钥**: 在请求头中提供 `x-goog-api-key: <YOUR_AUTH_TOKEN>` (前提是服务端已配置 `AUTH_TOKEN` 和 `GEMINI_API_KEY`)。
+>     - **模型列表**: 访问 `/${GEMINI_API_VERSION}/models`（例如 `/v1beta/models`）。
 >
 > 2. **OpenAI 兼容格式 (`Authorization`)**:
 >     - **客户端密钥**: 在请求头中提供 `Authorization: Bearer <YOUR_GEMINI_API_KEY>`。
 >     - **服务端密钥**: 在请求头中提供 `Authorization: Bearer <YOUR_AUTH_TOKEN>` (前提是服务端已配置 `AUTH_TOKEN` 和 `GEMINI_API_KEY`)。
+>     - **模型列表**: 访问 `/openai/models` 或 `/v1/models`（统一入口会映射到 `/${GEMINI_API_VERSION}/openai/models`）。
 >
 > \* **注意**: 如果请求中未提供任何有效的凭证，请求将被拒绝。
 1) Gemini 原生格式
@@ -280,5 +283,5 @@ SSE 事件：
 
 ## 版权
 
-MIT License. 改编自：技术爬爬虾（gemini-balance-lite），致谢原作者。#   T e s t   c h a n g e  
+MIT License. 改编自：技术爬爬虾（gemini-balance-lite），致谢原作者。#   T e s t   c h a n g e 
  

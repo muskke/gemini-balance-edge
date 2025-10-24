@@ -1,37 +1,5 @@
 {
   "routes": [
-    {
-      "src": "/v1beta/openai/models",
-      "dest": "/api/vercel_index.js",
-      "headers": {
-        "cache-control": "public, max-age=3600, s-maxage=3600"
-      }
-    },
-    {
-      "src": "/openai/models",
-      "dest": "/api/vercel_index.js",
-      "headers": {
-        "cache-control": "public, max-age=3600, s-maxage=3600"
-      }
-    },
-    {
-      "src": "/v1/models",
-      "dest": "/api/vercel_index.js",
-      "headers": {
-        "cache-control": "public, max-age=3600, s-maxage=3600"
-      }
-    },
-    {
-      "src": "/models",
-      "dest": "/api/vercel_index.js",
-      "headers": {
-        "cache-control": "public, max-age=3600, s-maxage=3600"
-      }
-    },
-    { "src": "/v1beta/openai/models", "dest": "/api/models.js" },
-    { "src": "/openai/models", "dest": "/api/models.js" },
-    { "src": "/v1/models", "dest": "/api/models.js" },
-    { "src": "/models", "dest": "/api/models.js" },
     { "src": "/verify", "dest": "/api/verify.js" },
     { "src": "/(.*)", "dest": "/api/vercel_index.js" }
   ]

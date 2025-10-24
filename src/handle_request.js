@@ -119,13 +119,22 @@ export async function handleRequest(request) {
 
   // 根据请求类型设置头部
   const baseUrl = process.env.GEMINI_BASE_URL || "https://generativelanguage.googleapis.com";
+  const apiVersion = process.env.GEMINI_API_VERSION || "v1beta";
   const isOpenAIRequest =
     url.pathname.endsWith("/chat/completions") ||
     url.pathname.endsWith("/embeddings");
+  const isOpenAIModelList = (
+    url.pathname.endsWith(`/${apiVersion}/openai/models`) ||
+    url.pathname.endsWith("/openai/models") ||
+    url.pathname.endsWith("/v1/models") ||
+    url.pathname.endsWith("/models")
+  );
+  const isNativeModelList = url.pathname.endsWith(`/${apiVersion}/models`);
 
-  if (isOpenAIRequest) {
+  if (isOpenAIRequest || isOpenAIModelList) {
     // OpenAI 格式
     newHeaders.set("Authorization", `Bearer ${selectedKey}`);
+    newHeaders.delete("x-goog-api-key");
   } else {
     // 默认为 Gemini 格式
     newHeaders.set("x-goog-api-key", selectedKey);
@@ -152,7 +161,12 @@ export async function handleRequest(request) {
 
   // 检查是否为流式请求
   const isStream = search.includes("alt=sse");
-  const targetUrl = `${baseUrl}${pathname}${search}`;
+  let targetUrl = `${baseUrl}${pathname}${search}`;
+  if (isOpenAIModelList) {
+    targetUrl = `${baseUrl}/${apiVersion}/openai/models${search}`;
+  } else if (isNativeModelList) {
+    targetUrl = `${baseUrl}/${apiVersion}/models${search}`;
+  }
 
 
   try {

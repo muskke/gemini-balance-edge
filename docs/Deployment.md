@@ -130,3 +130,13 @@
 ### Vercel 部署常见问题：
 1. **Token 权限问题**：确保 Vercel Token 有足够权限
 2. **环境变量缺失**：检查所有必要的环境变量是否已设置
+
+## 路由说明（统一入口）
+
+- Vercel：
+  - `/verify` → `/api/verify.js`
+  - `/(.*)` → `/api/vercel_index.js`
+- EdgeOne：
+  - `/verify` → `/node-functions/verify.js`
+  - `/(.*)` → `/node-functions/edgeone_index.js`
+- 模型列表与所有 API 路由由统一入口根据请求路径自动判断，并设置正确的鉴权头（OpenAI Authorization 或 Gemini x-goog-api-key）。

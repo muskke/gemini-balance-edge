@@ -1,11 +1,19 @@
 name: Deploy to EdgeOne Pages
 
-on:
-  push:
-    branches:
-      - main
-    paths-ignore:
-      - '.github/workflows/deploy.yml'  # 忽略deploy.yml的变更
+# 此工作流已被 selective-deploy.yml 替代
+# 如需单独使用，请取消注释以下配置
+# on:
+#   push:
+#     branches:
+#       - main
+#     paths:
+#       - '.github/workflows/edgeone.yml'  # 只监听edgeone.yml的变更
+#       - 'api/**'
+#       - 'src/**'
+#       - 'package.json'
+#       - 'edgeone.json'
+#       - 'README.md'
+#       - 'LICENSE'
 
 jobs:
   deploy-edgeone:
@@ -22,15 +30,37 @@ jobs:
       - name: Install dependencies
         run: npm install
 
+      - name: Install EdgeOne CLI
+        run: npm install -g @edgeone/cli
+
       - name: Prepare deployment directory
         run: |
           mkdir -p ./dist
+          
+          # 复制必要的文件，排除不相关的资源
           cp -r ./api ./dist/
           cp -r ./src ./dist/
           cp ./edgeone.json ./dist/
           cp ./package.json ./dist/
-          echo "Deployment directory prepared"
-          ls -la ./dist
+          
+          # 从src目录中排除测试和示例文件
+          rm -f ./dist/src/test_key_manager.js
+          rm -f ./dist/src/key_manager_example.js
+          
+          # 排除其他不相关文件
+          rm -rf ./dist/.github
+          rm -rf ./dist/docs
+          rm -f ./dist/README.md
+          rm -f ./dist/LICENSE
+          rm -f ./dist/netlify.toml
+          rm -f ./dist/.env.example
+          rm -f ./dist/deno.json
+          rm -f ./dist/vercel.json
+          
+          echo "Deployment directory prepared (excluding unnecessary files)"
+          echo "Contents:"
+          find ./dist -type f | head -20
+          echo "Total files: $(find ./dist -type f | wc -l)"
 
       - name: Determine project name
         id: proj
@@ -58,7 +88,7 @@ jobs:
           fi
           
           # 执行部署
-          npx edgeone pages deploy ./dist -n "${{ steps.proj.outputs.name }}" -t "${{ secrets.EDGEONE_API_TOKEN }}" -e production
+          edgeone pages deploy ./dist -n "${{ steps.proj.outputs.name }}" -t "${{ secrets.EDGEONE_API_TOKEN }}" -e production
           
           echo "=== EdgeOne Deployment Completed ==="
         env:

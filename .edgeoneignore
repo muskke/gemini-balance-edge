@@ -7,8 +7,7 @@ LICENSE
 # 其他平台配置文件
 netlify.toml
 netlify/
-edgeone.json
-.edgeoneignore
+vercel.json
 deno.json
 
 # 测试和示例文件

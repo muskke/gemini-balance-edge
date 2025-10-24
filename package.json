@@ -1,3 +1,17 @@
 {
-  "type": "module"
+  "name": "gemini-balance-edge",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Gemini API proxy with intelligent load balancing",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "vercel dev"
+  },
+  "dependencies": {
+    "@edgeone/cli": "^1.0.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
 }

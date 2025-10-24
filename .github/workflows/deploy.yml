@@ -1,11 +1,19 @@
 name: Deploy to Vercel
 
-on:
-  push:
-    branches:
-      - main
-    paths-ignore:
-      - '.github/workflows/edgeone.yml'  # 忽略edgeone.yml的变更
+# 此工作流已被 selective-deploy.yml 替代
+# 如需单独使用，请取消注释以下配置
+# on:
+#   push:
+#     branches:
+#       - main
+#     paths:
+#       - '.github/workflows/deploy.yml'  # 只监听deploy.yml的变更
+#       - 'api/**'
+#       - 'src/**'
+#       - 'package.json'
+#       - 'vercel.json'
+#       - 'README.md'
+#       - 'LICENSE'
 
 jobs:
   deploy:

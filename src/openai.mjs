@@ -64,6 +64,7 @@ const handleOPTIONS = async () => {
       "Access-Control-Allow-Origin": "*",
       "Access-Control-Allow-Methods": "*",
       "Access-Control-Allow-Headers": "*",
+      "Access-Control-Max-Age": "86400",
     }
   });
 };
@@ -171,24 +172,39 @@ async function handleCompletions(request) {
   // 但需要确保 Content-Type 正确设置
   if (!stream) {
     responseHeaders.set("Content-Type", "application/json");
-    // 使用 TransformStream 在流式传输中规范化 JSON
+    // 使用 TransformStream 聚合并在 flush 统一规范化，避免分片 JSON 解析错误
+    let __chunks = [];
+    function __concatUint8Arrays(chunks) {
+      const total = chunks.reduce((s, c) => s + c.length, 0);
+      const out = new Uint8Array(total);
+      let offset = 0;
+      for (const c of chunks) { out.set(c, offset); offset += c.length; }
+      return out;
+    }
     const { readable, writable } = new TransformStream({
       transform(chunk, controller) {
-        // 假设 chunk 是完整的 JSON，这在 Vercel Edge 环境中通常是安全的
+        __chunks.push(chunk);
+      },
+      flush(controller) {
         try {
-          const data = JSON.parse(new TextDecoder().decode(chunk));
+          const merged = __concatUint8Arrays(__chunks);
+          const text = new TextDecoder().decode(merged);
+          const data = JSON.parse(text);
           const model = requestBody.model || "gemini";
           const normalized = normalizeOpenAIChatResponse(data, model);
-          if (normalized.ok) {
-            controller.enqueue(JSON.stringify(normalized.data));
-          } else {
-            controller.enqueue(JSON.stringify(data)); // 规范化失败，返回原始数据
-          }
+          const payload = normalized.ok ? normalized.data : data;
+          controller.enqueue(JSON.stringify(payload));
         } catch (e) {
-            logger.error("JSON parsing/normalization failed in stream", e);
-            controller.enqueue(chunk); // 解析失败，传递原始块
+          logger.error("JSON aggregation/normalization failed", e);
+          // 尽最大努力返回合并文本，保底为原始内容
+          try {
+            const merged = __concatUint8Arrays(__chunks);
+            controller.enqueue(new TextDecoder().decode(merged));
+          } catch (_) {
+            // 若仍失败，不再输出内容以避免破碎响应
+          }
         }
-      },
+      }
     });
 
     response.body.pipeTo(writable);

@@ -85,9 +85,9 @@ export class KeyManager {
    */
   _parseKeys(keysString) {
     if (!keysString) return [];
-    return keysString.split(',').map(item => {
+    const parsed = keysString.split(',').map(item => {
       const parts = item.trim().split(':');
-      const key = parts[0];
+      const key = (parts[0] || '').trim();
       const weight = parts.length > 1 ? parseInt(parts[1], 10) : 1;
       const normalizedWeight = isNaN(weight) ? 1 : weight;
       return {
@@ -102,7 +102,8 @@ export class KeyManager {
         lastErrorCode: null,
         lastRecoveryAttempt: Date.now()
       };
-    });
+    }).filter(k => k.key && k.key.length > 0);
+    return parsed;
   }
 
   /**
@@ -113,6 +114,10 @@ export class KeyManager {
   selectKey() {
     if (!this.state) {
       this.initState();
+    }
+    if (this.state.keys.length === 0) {
+      this.logger.warn('KeyManager has no keys to select');
+      return null;
     }
 
     // 尝试权重恢复
@@ -152,6 +157,10 @@ export class KeyManager {
     if (!this.state) {
       this.initState();
     }
+    if (this.state.keys.length === 0) {
+      this.logger.warn('KeyManager has no keys to select');
+      return null;
+    }
 
     const { avoidRecentErrors = true, preferStableKeys = true } = context;
     
@@ -174,7 +183,7 @@ export class KeyManager {
     if (avoidRecentErrors) {
       const recentErrorThreshold = Date.now() - 300000; // 5分钟内
       available = available.filter(k => 
-        !k.lastErrorCode || k.last_checked < recentErrorThreshold
+        !k.lastErrorCode || ((k.last_error_at ?? k.last_checked) < recentErrorThreshold)
       );
     }
 
@@ -230,6 +239,8 @@ export class KeyManager {
     keyToUpdate.errorCount++;
     keyToUpdate.lastErrorCode = errorCode;
     keyToUpdate.last_checked = Date.now();
+    keyToUpdate.last_error_at = Date.now();
+    keyToUpdate.last_error_message = errorMessage;
 
     // 根据错误码获取权重惩罚
     const penalty = this.config.errorPenalties[errorCode] || this.config.errorPenalties.default;
@@ -390,7 +401,8 @@ export class KeyManager {
 
     const healthyCount = this.state.keys.filter(k => k.healthy).length;
     const totalKeys = this.state.keys.length;
-    const avgWeight = this.state.keys.reduce((sum, k) => sum + k.dynamicWeight, 0) / totalKeys;
+    const totalWeightSum = this.state.keys.reduce((sum, k) => sum + k.dynamicWeight, 0);
+    const avgWeight = totalKeys > 0 ? (totalWeightSum / totalKeys) : 0;
 
     return {
       totalKeys,
@@ -424,6 +436,11 @@ export class KeyManager {
       keyToRecover.errorCount = 0;
       keyToRecover.recoveryAttempts = 0;
       keyToRecover.lastRecoveryAttempt = Date.now();
+      keyToRecover.temporaryUnhealthy = false;
+      keyToRecover.temporaryUnhealthyUntil = null;
+      keyToRecover.lastErrorCode = null;
+      keyToRecover.last_error_at = undefined;
+      keyToRecover.last_error_message = undefined;
 
       this.logger.info(`手动恢复密钥 ...${apiKey.slice(-4)}`);
     }

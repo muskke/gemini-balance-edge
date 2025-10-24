@@ -35,7 +35,7 @@ jobs:
             echo "edgeone=true" >> $GITHUB_OUTPUT
             echo "Deployment strategy: EdgeOne only (edgeone.yml updated)"
           # 检查是否有源代码文件变更（同时部署两个平台）
-          elif echo "$CHANGED_FILES" | grep -E '\.(api/|src/|package\.json|vercel\.json|edgeone\.json|README\.md|LICENSE)$'; then
+          elif echo "$CHANGED_FILES" | grep -E '(api/|src/|package\.json|vercel\.json|edgeone\.json|README\.md|LICENSE|node-functions/)'; then
             echo "vercel=true" >> $GITHUB_OUTPUT
             echo "edgeone=true" >> $GITHUB_OUTPUT
             echo "Deployment strategy: Both platforms (source files updated)"
@@ -76,83 +76,7 @@ jobs:
   deploy-edgeone:
     needs: check-changes
     if: needs.check-changes.outputs.deploy-edgeone == 'true'
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '18.x'
-
-      - name: Install dependencies
-        run: npm install
-
-      - name: Install EdgeOne CLI
-        run: |
-          echo "Installing EdgeOne CLI..."
-          # EdgeOne CLI 通过 npx 使用，无需全局安装
-          npx edgeone --version || echo "EdgeOne CLI will be used via npx"
-
-      - name: Prepare deployment directory
-        run: |
-          mkdir -p ./dist
-          
-          # 复制必要的文件，排除不相关的资源
-          cp -r ./api ./dist/
-          cp -r ./src ./dist/
-          cp ./edgeone.json ./dist/
-          cp ./package.json ./dist/
-          
-          # 从src目录中排除测试和示例文件
-          rm -f ./dist/src/test_key_manager.js
-          rm -f ./dist/src/key_manager_example.js
-          
-          # 排除其他不相关文件
-          rm -rf ./dist/.github
-          rm -rf ./dist/docs
-          rm -f ./dist/README.md
-          rm -f ./dist/LICENSE
-          rm -f ./dist/netlify.toml
-          rm -f ./dist/.env.example
-          rm -f ./dist/deno.json
-          rm -f ./dist/vercel.json
-          
-          echo "Deployment directory prepared (excluding unnecessary files)"
-          echo "Contents:"
-          find ./dist -type f | head -20
-          echo "Total files: $(find ./dist -type f | wc -l)"
-
-      - name: Determine project name
-        id: proj
-        shell: bash
-        run: |
-          REPO_NAME=$(echo "${GITHUB_REPOSITORY}" | cut -d '/' -f2)
-          echo "name=${EDGEONE_PROJECT_NAME:-$REPO_NAME}" >> $GITHUB_OUTPUT
-        env:
-          EDGEONE_PROJECT_NAME: ${{ secrets.EDGEONE_PROJECT_NAME }}
-
-      - name: Deploy to EdgeOne Pages
-        run: |
-          echo "=== EdgeOne Deployment Debug Info ==="
-          echo "Project name: ${{ steps.proj.outputs.name }}"
-          echo "Deployment directory contents:"
-          ls -la ./dist
-          echo "EdgeOne config file:"
-          cat ./dist/edgeone.json
-          echo "=== Starting EdgeOne Deployment ==="
-          
-          # 检查API Token是否存在
-          if [ -z "${{ secrets.EDGEONE_API_TOKEN }}" ]; then
-            echo "ERROR: EDGEONE_API_TOKEN is not set!"
-            exit 1
-          fi
-          
-          # 执行部署 - 使用 npx edgeone
-          echo "Deploying to EdgeOne Pages..."
-          npx edgeone pages deploy ./dist -n "${{ steps.proj.outputs.name }}" -t "${{ secrets.EDGEONE_API_TOKEN }}" -e production
-          
-          echo "=== EdgeOne Deployment Completed ==="
-        env:
-          EDGEONE_API_TOKEN: ${{ secrets.EDGEONE_API_TOKEN }}
+    uses: ./.github/workflows/edgeone.yml
+    with:
+      deploy-edgeone: true
+    secrets: inherit

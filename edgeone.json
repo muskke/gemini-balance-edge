@@ -1,6 +1,6 @@
 {
   "rewrites": [
     { "source": "/verify", "destination": "/node-functions/verify.js" },
-    { "source": "/(.*)", "destination": "/node-functions/edgeone_index.js" }
+    { "source": "*", "destination": "/node-functions/edgeone_index.js" }
   ]
 }

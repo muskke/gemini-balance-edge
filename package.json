@@ -5,8 +5,7 @@
   "description": "Gemini API proxy with intelligent load balancing",
   "main": "src/index.js",
   "scripts": {
-    "start": "node src/index.js",
-    "dev": "vercel dev"
+    "start": "node src/index.js"
   },
   "engines": {
     "node": ">=18.0.0"

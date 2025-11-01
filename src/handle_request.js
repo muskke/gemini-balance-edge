@@ -1,18 +1,17 @@
 // import { handleVerification } from "./verify_keys.js";
 import openai from "./openai.mjs";
 import { KeyManager } from "./utils.js";
-import { logger, redactHeaders } from "./logger.mjs";
+import { logger, redactHeaders, initializeLogger } from "./logger.mjs";
 import { StreamHandler } from "./stream_handler.js";
 import { MonitoringSystem } from "./monitoring.js";
 import { MonitorEndpoint } from "./monitor_endpoint.js";
 import { PerformanceOptimizer } from "./performance_optimizer.js";
 
-// 在模块级别获取服务器 KeyManager 的单例
-const serverApiKey = process.env.GEMINI_API_KEY;
-const keyManager = KeyManager.getInstance(serverApiKey, logger);
+// 模块级变量，用于跨请求共享状态
+let keyManager;
 const streamHandler = new StreamHandler();
 const monitoringSystem = new MonitoringSystem();
-const monitorEndpoint = new MonitorEndpoint(monitoringSystem, keyManager, streamHandler);
+let monitorEndpoint;
 const performanceOptimizer = new PerformanceOptimizer({
   enableCaching: true,
   maxConcurrentRequests: 20,
@@ -25,12 +24,33 @@ let lastKeyTimestamp = 0;
 const LAST_KEY_TTL_MS = 60000; // 60s 有效期
 const REUSE_PROBABILITY = 0.8; // 80% 概率优先复用
 
-if (serverApiKey) {
-  // 首次初始化后，立即触发一次健康检查，之后每次请求也触发
-  setTimeout(() => keyManager.healthCheck().catch(logger.error), 0);
+// 初始化函数，确保只执行一次
+function initialize(env) {
+  initializeLogger(env); // 初始化 logger
+  logger.info("Initializing services...");
+  if (keyManager) {
+    logger.info("Services already initialized.");
+    return;
+  }
+  const serverApiKey = env.GEMINI_API_KEY;
+  logger.info(`GEMINI_API_KEY: ${serverApiKey ? 'loaded' : 'not found'}`);
+  keyManager = KeyManager.getInstance(serverApiKey, logger);
+  monitorEndpoint = new MonitorEndpoint(monitoringSystem, keyManager, streamHandler);
+
+  if (serverApiKey) {
+    // 首次初始化后，立即触发一次健康检查
+    setTimeout(() => keyManager.healthCheck().catch(logger.error), 0);
+  }
+  logger.info("Services initialized.");
 }
 
-export async function handleRequest(request) {
+export async function handleRequest(context) {
+  const { request, env } = context;
+  logger.info("Handling request...");
+  
+  // 确保服务已初始化
+  initialize(env);
+
   const startTime = performance.now();
   const url = new URL(request.url);
   const pathname = url.pathname;
@@ -72,7 +92,8 @@ export async function handleRequest(request) {
     return monitorEndpoint.handleMonitorRequest(request);
   }
 
-  const serverAuthToken = process.env.AUTH_TOKEN;
+  const serverAuthToken = env.AUTH_TOKEN;
+  const serverApiKey = env.GEMINI_API_KEY;
 
   // 以 1% 的概率异步触发健康检查，以减少高并发下的开销
   if (serverApiKey && Math.random() < 0.01) {
@@ -116,7 +137,7 @@ export async function handleRequest(request) {
       }
     }
 
-    if (!selectedKey) {
+    if (!selectedKey && keyManager) {
       // 使用性能优化器优化密钥选择
       const availableKeys = keyManager.state ? keyManager.state.keys.map(k => k.key) : [];
       selectedKey = performanceOptimizer.optimizeKeySelection(availableKeys) || keyManager.selectKey();
@@ -132,8 +153,8 @@ export async function handleRequest(request) {
    logger.info(`Selected API Key ending with ...${selectedKey.slice(-4)}`);
 
   // 根据请求类型设置头部
-  const baseUrl = process.env.GEMINI_BASE_URL || "https://generativelanguage.googleapis.com";
-  const apiVersion = process.env.GEMINI_API_VERSION || "v1beta";
+  const baseUrl = env.GEMINI_BASE_URL || "https://generativelanguage.googleapis.com";
+  const apiVersion = env.GEMINI_API_VERSION || "v1beta";
   const isOpenAIRequest =
     url.pathname.endsWith("/chat/completions") ||
     url.pathname.endsWith("/embeddings");

@@ -30,9 +30,10 @@ export class CacheManager {
   generateCacheKey(key, params = {}) {
     const sortedParams = Object.keys(params)
       .sort()
-      .map(k => `${k}=${params[k]}`)
+      .filter(k => params[k] !== undefined && params[k] !== null)
+      .map(k => `${k}=${String(params[k])}`)
       .join('&');
-    
+
     return sortedParams ? `${key}?${sortedParams}` : key;
   }
 

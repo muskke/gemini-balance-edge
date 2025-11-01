@@ -185,7 +185,7 @@ export async function handleRequest(request) {
   logger.info("Request Sending to Gemini");
 
   // 检查是否为流式请求
-  const isStream = search.includes("alt=sse") || (request.headers.get("accept") || "").toLowerCase().includes("text/event-stream");
+  const isStream = url.searchParams.has('alt') || (request.headers.get("accept") || "").toLowerCase().includes("text/event-stream");
   let targetUrl = `${baseUrl}${pathname}${search}`;
   if (isOpenAIModelList) {
     targetUrl = `${baseUrl}/${apiVersion}/openai/models${search}`;
@@ -201,9 +201,22 @@ export async function handleRequest(request) {
       body: request.body
     });
 
-    const response = await performanceOptimizer.optimizeRequest(geminiRequest, async (req) => {
-      return await fetch(req);
-    });
+    let response;
+    try {
+      response = await performanceOptimizer.optimizeRequest(geminiRequest, async (req) => {
+        return await fetch(req);
+      });
+    } catch (fetchError) {
+      // 处理请求被取消的情况
+      if (fetchError.name === 'AbortError' || fetchError.message.includes('aborted')) {
+        logger.warn(`Request aborted for key ...${selectedKey.slice(-4)}`);
+        return new Response(
+          JSON.stringify({ error: { message: "Request was cancelled" } }),
+          { status: 499, headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" } }
+        );
+      }
+      throw fetchError;
+    }
 
     // 成功（200）则更新复用缓存
     if (response.status === 200 && usingServerKeys && selectedKey) {
@@ -238,7 +251,7 @@ export async function handleRequest(request) {
         await keyManager.handleKeyError(selectedKey, response.status, "Auth/Permission error");
       }
     } else {
-      logger.info("Call Gemini Success (streaming)");
+      logger.info("Call Gemini Success");
     }
 
     const responseHeaders = new Headers(response.headers);
@@ -249,11 +262,6 @@ export async function handleRequest(request) {
     const geminiRequestEndTime = performance.now();
     logger.info(`Gemini request took ${(geminiRequestEndTime - geminiRequestStartTime).toFixed(2)}ms`);
     const totalTime = performance.now() - startTime;
-    logger.info(`Request completed successfully: ${request.method} ${pathname} - ${totalTime.toFixed(2)}ms`, {
-      status: response.status,
-      totalTime: `${totalTime.toFixed(2)}ms`,
-      keyUsed: `...${selectedKey.slice(-4)}`
-    });
 
     // 记录监控指标
     monitoringSystem.recordRequest({
@@ -263,17 +271,18 @@ export async function handleRequest(request) {
       isStream: isStream
     });
 
+    logger.info(`Request completed successfully: ${request.method} ${pathname} - ${totalTime.toFixed(2)}ms`, {
+      status: response.status,
+      totalTime: `${totalTime.toFixed(2)}ms`,
+      keyUsed: `...${selectedKey.slice(-4)}`
+    });
+
     return new Response(response.body, {
       status: response.status,
       headers: responseHeaders,
     });
   } catch (error) {
-    logger.error("Failed to fetch:", error.message);
     const totalTime = performance.now() - startTime;
-    logger.info(`Request completed with error: ${request.method} ${pathname} - ${totalTime.toFixed(2)}ms`, {
-      error: error.message,
-      totalTime: `${totalTime.toFixed(2)}ms`
-    });
 
     // 记录错误监控指标
     monitoringSystem.recordError(error, selectedKey);
@@ -282,6 +291,12 @@ export async function handleRequest(request) {
       responseTime: totalTime,
       keyUsed: selectedKey,
       error: error
+    });
+
+    logger.error("Failed to fetch:", error.message);
+    logger.info(`Request completed with error: ${request.method} ${pathname} - ${totalTime.toFixed(2)}ms`, {
+      error: error.message,
+      totalTime: `${totalTime.toFixed(2)}ms`
     });
 
     return new Response(

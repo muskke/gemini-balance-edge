@@ -82,11 +82,14 @@ export class StreamHandler {
     let lastChunkTime = Date.now();
 
     const reader = upstreamBody.getReader();
-    
+
+    // Bind methods to preserve context
+    const handleStreamEndBound = this.handleStreamEnd.bind(this);
+
     return new ReadableStream({
       start(controller) {
         logger.info(`流式响应 ${streamId} 开始`);
-        
+
         // 发送流开始标记
         controller.enqueue(encoder.encode(`data: {"type":"stream_start","stream_id":"${streamId}"}\n\n`));
       },
@@ -94,10 +97,10 @@ export class StreamHandler {
       async pull(controller) {
         try {
           const { done, value } = await reader.read();
-          
+
           if (done) {
             // 流结束
-            this.handleStreamEnd(streamId, 'completed');
+            handleStreamEndBound(streamId, 'completed');
             controller.enqueue(encoder.encode(`data: {"type":"stream_end","stream_id":"${streamId}"}\n\n`));
             controller.close();
             return;
@@ -106,10 +109,10 @@ export class StreamHandler {
           // 处理数据块
           chunkCount++;
           lastChunkTime = Date.now();
-          
+
           // 发送数据块
           controller.enqueue(value);
-          
+
           // 每100个块记录一次统计
           if (chunkCount % 100 === 0) {
             logger.debug(`流式响应 ${streamId} 已处理 ${chunkCount} 个数据块`);
@@ -117,14 +120,14 @@ export class StreamHandler {
 
         } catch (error) {
           logger.error(`流式响应 ${streamId} 处理错误:`, error);
-          this.handleStreamEnd(streamId, 'error');
+          handleStreamEndBound(streamId, 'error');
           controller.error(error);
         }
       },
 
       cancel() {
         logger.info(`流式响应 ${streamId} 被取消`);
-        this.handleStreamEnd(streamId, 'cancelled');
+        handleStreamEndBound(streamId, 'cancelled');
         reader.cancel();
       }
     });

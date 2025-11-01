@@ -31,6 +31,7 @@ export class PerformanceOptimizer {
     this.performanceMetrics = {
       totalRequests: 0,
       cachedRequests: 0,
+      errorCount: 0,
       averageResponseTime: 0,
       peakConcurrency: 0,
       errorRate: 0
@@ -134,9 +135,10 @@ export class PerformanceOptimizer {
 
     // 更新错误率
     if (!success) {
-      const errorCount = this.performanceMetrics.totalRequests - this.performanceMetrics.cachedRequests;
-      this.performanceMetrics.errorRate = (errorCount / this.performanceMetrics.totalRequests) * 100;
+      this.performanceMetrics.errorCount++;
     }
+    // 计算错误率 = 错误数 / 总请求数 * 100
+    this.performanceMetrics.errorRate = (this.performanceMetrics.errorCount / this.performanceMetrics.totalRequests) * 100;
 
     logger.debug('性能指标已记录', {
       responseTime: responseTime.toFixed(2),

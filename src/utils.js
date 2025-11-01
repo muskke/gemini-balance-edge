@@ -72,7 +72,13 @@ export class KeyManager {
       keys: this.initialKeys.map(k => ({ ...k })),
       currentIndex: 0,
       totalResetCount: 0,
-      lastGlobalReset: Date.now()
+      lastGlobalReset: Date.now(),
+      // 优先级队列状态
+      priorityQueues: null,
+      priorityList: [],
+      currentPriorityIndex: 0,
+      currentQueueIndex: 0,
+      lastSelectedKey: null
     };
 
     this.logger.debug('KeyManager state initialized successfully.');
@@ -100,7 +106,11 @@ export class KeyManager {
         errorCount: 0,
         recoveryAttempts: 0,
         lastErrorCode: null,
-        lastRecoveryAttempt: Date.now()
+        last_error_at: undefined, // 初始化 last_error_at
+        last_error_message: undefined,
+        lastRecoveryAttempt: Date.now(),
+        temporaryUnhealthy: false,
+        temporaryUnhealthyUntil: null
       };
     }).filter(k => k.key && k.key.length > 0);
     return parsed;
@@ -196,26 +206,133 @@ export class KeyManager {
   }
 
   /**
-   * 从可用密钥列表中使用加权轮询选择密钥
+   * 使用 O(1) 优先级队列算法选择密钥
+   * 保证连续两次请求不会使用同一个 KEY
    * @private
    */
   _selectFromAvailable(keys) {
     if (keys.length === 0) return null;
 
-    const totalWeight = keys.reduce((sum, k) => sum + k.dynamicWeight, 0);
-    if (totalWeight <= 0) return keys[0].key; // 如果总权重为0，返回第一个
+    // 初始化优先级队列数据结构（O(1) 操作）
+    this._initPriorityQueueIfNeeded();
 
-    let selected = null;
-    for (const k of keys) {
-      k.currentWeight += k.dynamicWeight;
-      if (!selected || k.currentWeight > selected.currentWeight) {
-        selected = k;
-      }
+    // 将密钥按权重分组到对应队列（只在初始化时执行）
+    this._rebuildPriorityQueues(keys);
+
+    // 使用优先级队列选择算法（O(1)）
+    return this._selectFromPriorityQueue();
+  }
+
+  /**
+   * 初始化优先级队列数据结构
+   * @private
+   */
+  _initPriorityQueueIfNeeded() {
+    if (!this.state.priorityQueues) {
+      this.state.priorityQueues = new Map(); // 优先级 -> 队列的映射
+      this.state.priorityList = []; // 优先级列表（按优先级降序排序）
+      this.state.currentPriorityIndex = 0; // 当前优先级索引
+      this.state.currentQueueIndex = 0; // 当前队列中的索引
+      this.state.lastSelectedKey = null; // 记录最后一次选择的密钥
+    }
+  }
+
+  /**
+   * 重建优先级队列（只在密钥状态改变时执行）
+   * @private
+   */
+  _rebuildPriorityQueues(keys) {
+    const { priorityQueues } = this.state;
+
+    // 收集所有唯一优先级
+    const uniquePriorities = new Set();
+    for (const keyObj of keys) {
+      const weight = keyObj.dynamicWeight;
+      // 将权重转换为整数优先级（权重越大优先级越高）
+      const priority = Math.max(1, Math.round(weight * 10));
+      uniquePriorities.add(priority);
     }
 
-    if (selected) {
-      selected.currentWeight -= totalWeight;
-      return selected.key;
+    // 如果优先级列表发生变化，重建
+    const newPriorityList = Array.from(uniquePriorities).sort((a, b) => b - a);
+    const needRebuild = newPriorityList.join(',') !== this.state.priorityList.join(',');
+
+    if (needRebuild) {
+      // 清空现有队列
+      priorityQueues.clear();
+
+      // 为每个优先级创建新队列
+      for (const priority of newPriorityList) {
+        priorityQueues.set(priority, []);
+      }
+
+      // 将密钥分配到对应队列
+      for (const keyObj of keys) {
+        const weight = keyObj.dynamicWeight;
+        const priority = Math.max(1, Math.round(weight * 10));
+        const queue = priorityQueues.get(priority);
+        if (queue) {
+          queue.push(keyObj);
+        }
+      }
+
+      this.state.priorityList = newPriorityList;
+      this.state.currentPriorityIndex = 0;
+      this.state.currentQueueIndex = 0;
+    }
+  }
+
+  /**
+   * 从优先级队列中选择密钥（O(1) 操作）
+   * @private
+   */
+  _selectFromPriorityQueue() {
+    const { priorityQueues, priorityList, currentPriorityIndex, currentQueueIndex } = this.state;
+    const priorities = priorityList;
+
+    if (priorities.length === 0) return null;
+
+    let priIndex = currentPriorityIndex;
+    let queueIndex = currentQueueIndex;
+
+    // 尝试从当前优先级队列选择
+    for (let i = 0; i < priorities.length; i++) {
+      const currentPriIndex = (priIndex + i) % priorities.length;
+      const priority = priorities[currentPriIndex];
+      const queue = priorityQueues.get(priority);
+
+      if (!queue || queue.length === 0) continue;
+
+      // 避免连续选择同一个密钥
+      if (queue.length === 1 && queue[0].key === this.state.lastSelectedKey) {
+        continue;
+      }
+
+      // 从队列中取出密钥
+      const selectedKeyObj = queue[queueIndex % queue.length];
+
+      // 将密钥移至队列尾部（循环移位）
+      if (queue.length > 1) {
+        queue.push(queue.shift());
+      }
+
+      // 更新状态
+      this.state.currentPriorityIndex = currentPriIndex;
+      this.state.currentQueueIndex = (queueIndex + 1) % queue.length;
+      this.state.lastSelectedKey = selectedKeyObj.key;
+
+      return selectedKeyObj.key;
+    }
+
+    // 如果所有队列都只有一个密钥且是上次使用的，放宽限制
+    const firstPriority = priorities[0];
+    const queue = priorityQueues.get(firstPriority);
+    if (queue && queue.length > 0) {
+      const selectedKeyObj = queue[queueIndex % queue.length];
+      this.state.currentPriorityIndex = 0;
+      this.state.currentQueueIndex = (queueIndex + 1) % queue.length;
+      this.state.lastSelectedKey = selectedKeyObj.key;
+      return selectedKeyObj.key;
     }
 
     return null;
@@ -384,7 +501,16 @@ export class KeyManager {
       key.errorCount = 0;
       key.recoveryAttempts = 0;
       key.lastRecoveryAttempt = Date.now();
+      key.inQueue = false; // 重置队列标记
+      key.currentPriority = undefined;
     }
+
+    // 重置优先级队列状态
+    this.state.priorityQueues = null;
+    this.state.priorityList = [];
+    this.state.currentPriorityIndex = 0;
+    this.state.currentQueueIndex = 0;
+    this.state.lastSelectedKey = null;
 
     this.state.totalResetCount++;
     this.state.lastGlobalReset = Date.now();
@@ -415,7 +541,7 @@ export class KeyManager {
         key: `...${k.key.slice(-4)}`,
         healthy: k.healthy,
         originalWeight: k.originalWeight,
-        currentWeight: k.dynamicWeight.toFixed(2),
+        currentWeight: parseFloat(k.dynamicWeight.toFixed(2)),
         errorCount: k.errorCount,
         lastErrorCode: k.lastErrorCode
       }))

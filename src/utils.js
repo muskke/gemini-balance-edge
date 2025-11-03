@@ -388,12 +388,13 @@ export class KeyManager {
       keyToUpdate.healthy = false;
       this.logger.warn(`密钥 ...${keyToUpdate.key.slice(-4)} 因认证/权限错误被标记为不健康`);
     } 
-    // 503 错误特殊处理 - 临时标记为不健康，但快速恢复
-    else if (errorCode === 503) {
+    // Rate limit or server overload errors
+    else if (errorCode === 429 || errorCode === 503) {
       keyToUpdate.healthy = false;
-      keyToUpdate.temporaryUnhealthy = true; // 标记为临时不健康
-      keyToUpdate.temporaryUnhealthyUntil = Date.now() + 60000; // 1分钟后恢复
-      this.logger.warn(`密钥 ...${keyToUpdate.key.slice(-4)} 因 503 错误被临时标记为不健康`);
+      keyToUpdate.temporaryUnhealthy = true;
+      const cooldown = errorCode === 429 ? 60000 : 30000; // 60s for 429, 30s for 503
+      keyToUpdate.temporaryUnhealthyUntil = Date.now() + cooldown;
+      this.logger.warn(`密钥 ...${keyToUpdate.key.slice(-4)} 因 ${errorCode} 错误被临时标记为不健康，冷却 ${cooldown / 1000}s`);
     }
     // 权重过低时标记为不健康
     else if (keyToUpdate.dynamicWeight <= this.config.recovery.minWeight) {

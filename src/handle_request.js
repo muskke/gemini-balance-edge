@@ -119,52 +119,7 @@ export async function handleRequest(request) {
   );
   if (usingServerKeys) {
     logger.info("Using server-provided Gemini API Keys.");
-    // 密钥选择逻辑
-    const nowTs = Date.now();
-    const timeSinceLastUse = nowTs - lastKeyTimestamp;
-
-    if (
-      lastSuccessfulKey &&
-      timeSinceLastUse > 30000 && // 超过30秒
-      timeSinceLastUse <= LAST_KEY_TTL_MS &&
-      Math.random() < REUSE_PROBABILITY
-    ) {
-      // 场景1: 距离上次使用超过30秒，且在有效期内，概率性复用
-      const isHealthy =
-        keyManager.state?.keys?.find((k) => k.key === lastSuccessfulKey)
-          ?.healthy ?? true;
-      if (isHealthy) {
-        selectedKey = lastSuccessfulKey;
-        logger.debug(
-          `Reusing last successful key (over 30s rule) ...${selectedKey.slice(
-            -4
-          )}`
-        );
-      }
-    }
-
-    // 场景2: 如果没有复用成功（包括30秒内强制轮换的情况）
-    if (!selectedKey) {
-      const availableKeys =
-        keyManager.state?.keys
-          .filter((k) => k.healthy && k.key !== lastSuccessfulKey) // 排除最近使用的key
-          .map((k) => k.key) ?? [];
-
-      if (availableKeys.length > 0) {
-        logger.debug("Selecting a new key (under 30s rule or reuse failed).");
-        selectedKey =
-          performanceOptimizer.optimizeKeySelection(availableKeys) ||
-          keyManager.selectKey(
-            availableKeys.map((k) => ({ key: k, healthy: true }))
-          ); // 从过滤后的列表中选择
-      } else {
-        // 如果没有其他可用密钥，则回退到使用最近的密钥或全局选择
-        logger.warn(
-          "No other healthy keys available, falling back to the last used key or global selection."
-        );
-        selectedKey = lastSuccessfulKey || keyManager.selectKey();
-      }
-    }
+    selectedKey = keyManager.selectKeySmart();
   } else {
     clientTokenStr = clientApiKey_OpenAI || clientApiKey_Gemini || "";
     logger.info("Using client-provided Gemini API Keys.");
@@ -223,11 +178,6 @@ export async function handleRequest(request) {
       }
     );
 
-    if (response.status === 200 && usingServerKeys && selectedKey) {
-      lastSuccessfulKey = selectedKey;
-      lastKeyTimestamp = Date.now();
-      logger.debug(`Cached last successful key ...${selectedKey.slice(-4)}`);
-    }
 
     const openAIRequestEndTime = performance.now();
     logger.info(
@@ -290,12 +240,6 @@ export async function handleRequest(request) {
       throw fetchError;
     }
 
-    // 成功（200）则更新复用缓存
-    if (response.status === 200 && usingServerKeys && selectedKey) {
-      lastSuccessfulKey = selectedKey;
-      lastKeyTimestamp = Date.now();
-      logger.debug(`Cached last successful key ...${selectedKey.slice(-4)}`);
-    }
 
     // 对于流式响应，使用优化的流式处理器
     if (isStream && response.ok) {
@@ -323,11 +267,19 @@ export async function handleRequest(request) {
           },
         }
       );
-      if (response.status === 401 || response.status === 403) {
+      const clonedResponse = response.clone();
+      let errorBodyText = '';
+      try {
+        errorBodyText = await clonedResponse.text();
+      } catch (e) {
+        errorBodyText = 'Could not read error body.';
+      }
+
+      if (response.status >= 400 && usingServerKeys) {
         await keyManager.handleKeyError(
           selectedKey,
           response.status,
-          "Auth/Permission error"
+          errorBodyText
         );
       }
     } else {

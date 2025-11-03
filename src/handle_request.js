@@ -26,7 +26,7 @@ const LAST_KEY_TTL_MS = 60000; // 60s 有效期
 const REUSE_PROBABILITY = 0.8; // 80% 概率优先复用
 
 // 初始化函数，确保只执行一次
-function initialize(env) {
+function initialize() {
   logger.info("Initializing services...");
   if (keyManager) {
     logger.info("Services already initialized.");
@@ -43,12 +43,10 @@ function initialize(env) {
   logger.info("Services initialized.");
 }
 
-export async function handleRequest(context) {
-  const { request, env } = context;
-  logger.info("Handling request...");
-  
+export async function handleRequest(request) {
+
   // 确保服务已初始化
-  initialize(env);
+  initialize();
 
   const startTime = performance.now();
   const url = new URL(request.url);
@@ -153,9 +151,7 @@ export async function handleRequest(context) {
           .map((k) => k.key) ?? [];
 
       if (availableKeys.length > 0) {
-        logger.debug(
-          "Selecting a new key (under 30s rule or reuse failed)."
-        );
+        logger.debug("Selecting a new key (under 30s rule or reuse failed).");
         selectedKey =
           performanceOptimizer.optimizeKeySelection(availableKeys) ||
           keyManager.selectKey(

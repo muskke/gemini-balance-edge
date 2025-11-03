@@ -57,8 +57,8 @@ export async function handleRequest(context) {
   const search = url.search;
 
   logger.info(`Request started: ${request.method} ${pathname}`, {
-    userAgent: request.headers.get('user-agent'),
-    timestamp: new Date().toISOString()
+    userAgent: request.headers.get("user-agent"),
+    timestamp: new Date().toISOString(),
   });
 
   if (request.method === "OPTIONS") {
@@ -78,7 +78,10 @@ export async function handleRequest(context) {
       "Proxy is Running!  More Details: https://github.com/muskke/gemini-balance-edge",
       {
         status: 200,
-        headers: { "Content-Type": "text/html", "Access-Control-Allow-Origin": "*" },
+        headers: {
+          "Content-Type": "text/html",
+          "Access-Control-Allow-Origin": "*",
+        },
       }
     );
   }
@@ -93,7 +96,6 @@ export async function handleRequest(context) {
   }
 
   const serverAuthToken = env.AUTH_TOKEN;
-  const serverApiKey = env.GEMINI_API_KEY;
 
   // 以 1% 的概率异步触发健康检查，以减少高并发下的开销
   if (serverApiKey && Math.random() < 0.01) {
@@ -113,35 +115,67 @@ export async function handleRequest(context) {
   const clientApiKey_OpenAI = authHeader?.split(" ")[1];
   const clientApiKey_Gemini = newHeaders.get("x-goog-api-key");
 
-  const usingServerKeys = !!(serverAuthToken && (clientApiKey_OpenAI === serverAuthToken || clientApiKey_Gemini === serverAuthToken));
+  const usingServerKeys = !!(
+    serverAuthToken &&
+    (clientApiKey_OpenAI === serverAuthToken ||
+      clientApiKey_Gemini === serverAuthToken)
+  );
   if (usingServerKeys) {
     logger.info("Using server-provided Gemini API Keys.");
-    // KeyManager 已用 serverApiKey 初始化
-  } else {
-    clientTokenStr = clientApiKey_OpenAI || clientApiKey_Gemini || "";
-    logger.info("Using client-provided Gemini API Keys.");
-    // 为客户端密钥使用临时 KeyManager（避免注册全局缓存）
-    const clientKeyManager = KeyManager.createEphemeral(clientTokenStr, logger);
-    selectedKey = clientKeyManager.selectKey();
-  }
-
-  if (!selectedKey) {
-    // 优先复用最近成功密钥（限时+概率），再回退至选择器
+    // 密钥选择逻辑
     const nowTs = Date.now();
-    if (usingServerKeys && lastSuccessfulKey && (nowTs - lastKeyTimestamp) <= LAST_KEY_TTL_MS) {
-      const preferReuse = Math.random() < REUSE_PROBABILITY;
-      const isHealthy = keyManager.state?.keys?.find(k => k.key === lastSuccessfulKey)?.healthy ?? true;
-      if (preferReuse && isHealthy) {
+    const timeSinceLastUse = nowTs - lastKeyTimestamp;
+
+    if (
+      lastSuccessfulKey &&
+      timeSinceLastUse > 30000 && // 超过30秒
+      timeSinceLastUse <= LAST_KEY_TTL_MS &&
+      Math.random() < REUSE_PROBABILITY
+    ) {
+      // 场景1: 距离上次使用超过30秒，且在有效期内，概率性复用
+      const isHealthy =
+        keyManager.state?.keys?.find((k) => k.key === lastSuccessfulKey)
+          ?.healthy ?? true;
+      if (isHealthy) {
         selectedKey = lastSuccessfulKey;
-        logger.debug(`Reusing last successful key ...${selectedKey.slice(-4)}`);
+        logger.debug(
+          `Reusing last successful key (over 30s rule) ...${selectedKey.slice(
+            -4
+          )}`
+        );
       }
     }
 
-    if (!selectedKey && keyManager) {
-      // 使用性能优化器优化密钥选择
-      const availableKeys = keyManager.state ? keyManager.state.keys.map(k => k.key) : [];
-      selectedKey = performanceOptimizer.optimizeKeySelection(availableKeys) || keyManager.selectKey();
+    // 场景2: 如果没有复用成功（包括30秒内强制轮换的情况）
+    if (!selectedKey) {
+      const availableKeys =
+        keyManager.state?.keys
+          .filter((k) => k.healthy && k.key !== lastSuccessfulKey) // 排除最近使用的key
+          .map((k) => k.key) ?? [];
+
+      if (availableKeys.length > 0) {
+        logger.debug(
+          "Selecting a new key (under 30s rule or reuse failed)."
+        );
+        selectedKey =
+          performanceOptimizer.optimizeKeySelection(availableKeys) ||
+          keyManager.selectKey(
+            availableKeys.map((k) => ({ key: k, healthy: true }))
+          ); // 从过滤后的列表中选择
+      } else {
+        // 如果没有其他可用密钥，则回退到使用最近的密钥或全局选择
+        logger.warn(
+          "No other healthy keys available, falling back to the last used key or global selection."
+        );
+        selectedKey = lastSuccessfulKey || keyManager.selectKey();
+      }
     }
+  } else {
+    clientTokenStr = clientApiKey_OpenAI || clientApiKey_Gemini || "";
+    logger.info("Using client-provided Gemini API Keys.");
+    // 为客户端密钥使用临时 KeyManager
+    const clientKeyManager = KeyManager.createEphemeral(clientTokenStr, logger);
+    selectedKey = clientKeyManager.selectKey();
   }
 
   if (!selectedKey) {
@@ -150,20 +184,20 @@ export async function handleRequest(context) {
       { status: 500, headers: { "Content-Type": "application/json" } }
     );
   }
-   logger.info(`Selected API Key ending with ...${selectedKey.slice(-4)}`);
+  logger.info(`Selected API Key ending with ...${selectedKey.slice(-4)}`);
 
   // 根据请求类型设置头部
-  const baseUrl = env.GEMINI_BASE_URL || "https://generativelanguage.googleapis.com";
-  const apiVersion = env.GEMINI_API_VERSION || "v1beta";
+  const baseUrl =
+    process.env.GEMINI_BASE_URL || "https://generativelanguage.googleapis.com";
+  const apiVersion = process.env.GEMINI_API_VERSION || "v1beta";
   const isOpenAIRequest =
     url.pathname.endsWith("/chat/completions") ||
     url.pathname.endsWith("/embeddings");
-  const isOpenAIModelList = (
+  const isOpenAIModelList =
     url.pathname.endsWith(`/${apiVersion}/openai/models`) ||
     url.pathname.endsWith("/openai/models") ||
     url.pathname.endsWith("/v1/models") ||
-    url.pathname.endsWith("/models")
-  );
+    url.pathname.endsWith("/models");
   const isNativeModelList = url.pathname.endsWith(`/${apiVersion}/models`);
 
   if (isOpenAIRequest || isOpenAIModelList) {
@@ -185,11 +219,14 @@ export async function handleRequest(context) {
       body: request.body,
     });
     logger.debug("Forwarding to OpenAI compatible endpoint.");
-    
+
     // 使用性能优化器处理请求
-    const response = await performanceOptimizer.optimizeRequest(newRequest, async (req) => {
-      return await openai.fetch(req);
-    });
+    const response = await performanceOptimizer.optimizeRequest(
+      newRequest,
+      async (req) => {
+        return await openai.fetch(req);
+      }
+    );
 
     if (response.status === 200 && usingServerKeys && selectedKey) {
       lastSuccessfulKey = selectedKey;
@@ -198,7 +235,11 @@ export async function handleRequest(context) {
     }
 
     const openAIRequestEndTime = performance.now();
-    logger.info(`OpenAI compatible endpoint request took ${ (openAIRequestEndTime - openAIRequestStartTime).toFixed(2) }ms`);
+    logger.info(
+      `OpenAI compatible endpoint request took ${(
+        openAIRequestEndTime - openAIRequestStartTime
+      ).toFixed(2)}ms`
+    );
     return response;
   }
 
@@ -206,7 +247,11 @@ export async function handleRequest(context) {
   logger.info("Request Sending to Gemini");
 
   // 检查是否为流式请求
-  const isStream = url.searchParams.has('alt') || (request.headers.get("accept") || "").toLowerCase().includes("text/event-stream");
+  const isStream =
+    url.searchParams.has("alt") ||
+    (request.headers.get("accept") || "")
+      .toLowerCase()
+      .includes("text/event-stream");
   let targetUrl = `${baseUrl}${pathname}${search}`;
   if (isOpenAIModelList) {
     targetUrl = `${baseUrl}/${apiVersion}/openai/models${search}`;
@@ -214,26 +259,37 @@ export async function handleRequest(context) {
     targetUrl = `${baseUrl}/${apiVersion}/models${search}`;
   }
 
-
   try {
     const geminiRequest = new Request(targetUrl, {
       method: request.method,
       headers: newHeaders,
-      body: request.body
+      body: request.body,
     });
 
     let response;
     try {
-      response = await performanceOptimizer.optimizeRequest(geminiRequest, async (req) => {
-        return await fetch(req);
-      });
+      response = await performanceOptimizer.optimizeRequest(
+        geminiRequest,
+        async (req) => {
+          return await fetch(req);
+        }
+      );
     } catch (fetchError) {
       // 处理请求被取消的情况
-      if (fetchError.name === 'AbortError' || fetchError.message.includes('aborted')) {
+      if (
+        fetchError.name === "AbortError" ||
+        fetchError.message.includes("aborted")
+      ) {
         logger.warn(`Request aborted for key ...${selectedKey.slice(-4)}`);
         return new Response(
           JSON.stringify({ error: { message: "Request was cancelled" } }),
-          { status: 499, headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" } }
+          {
+            status: 499,
+            headers: {
+              "Content-Type": "application/json",
+              "Access-Control-Allow-Origin": "*",
+            },
+          }
         );
       }
       throw fetchError;
@@ -255,7 +311,9 @@ export async function handleRequest(context) {
     // 对于非流式响应或错误响应，立即返回流式响应
     if (!response.ok) {
       logger.warn(
-        `API call failed with status ${response.status} for key ...${selectedKey.slice(-4)}`,
+        `API call failed with status ${
+          response.status
+        } for key ...${selectedKey.slice(-4)}`,
         {
           request: {
             url: targetUrl,
@@ -264,12 +322,18 @@ export async function handleRequest(context) {
           },
           response: {
             status: response.status,
-            headers: redactHeaders(Object.fromEntries(response.headers.entries())),
+            headers: redactHeaders(
+              Object.fromEntries(response.headers.entries())
+            ),
           },
         }
       );
       if (response.status === 401 || response.status === 403) {
-        await keyManager.handleKeyError(selectedKey, response.status, "Auth/Permission error");
+        await keyManager.handleKeyError(
+          selectedKey,
+          response.status,
+          "Auth/Permission error"
+        );
       }
     } else {
       logger.info("Call Gemini Success");
@@ -281,7 +345,11 @@ export async function handleRequest(context) {
 
     // 直接使用 response.body 实现流式响应，消除阻塞
     const geminiRequestEndTime = performance.now();
-    logger.info(`Gemini request took ${(geminiRequestEndTime - geminiRequestStartTime).toFixed(2)}ms`);
+    logger.info(
+      `Gemini request took ${(
+        geminiRequestEndTime - geminiRequestStartTime
+      ).toFixed(2)}ms`
+    );
     const totalTime = performance.now() - startTime;
 
     // 记录监控指标
@@ -289,14 +357,19 @@ export async function handleRequest(context) {
       statusCode: response.status,
       responseTime: totalTime,
       keyUsed: selectedKey,
-      isStream: isStream
+      isStream: isStream,
     });
 
-    logger.info(`Request completed successfully: ${request.method} ${pathname} - ${totalTime.toFixed(2)}ms`, {
-      status: response.status,
-      totalTime: `${totalTime.toFixed(2)}ms`,
-      keyUsed: `...${selectedKey.slice(-4)}`
-    });
+    logger.info(
+      `Request completed successfully: ${
+        request.method
+      } ${pathname} - ${totalTime.toFixed(2)}ms`,
+      {
+        status: response.status,
+        totalTime: `${totalTime.toFixed(2)}ms`,
+        keyUsed: `...${selectedKey.slice(-4)}`,
+      }
+    );
 
     return new Response(response.body, {
       status: response.status,
@@ -311,14 +384,19 @@ export async function handleRequest(context) {
       statusCode: 500,
       responseTime: totalTime,
       keyUsed: selectedKey,
-      error: error
+      error: error,
     });
 
     logger.error("Failed to fetch:", error.message);
-    logger.info(`Request completed with error: ${request.method} ${pathname} - ${totalTime.toFixed(2)}ms`, {
-      error: error.message,
-      totalTime: `${totalTime.toFixed(2)}ms`
-    });
+    logger.info(
+      `Request completed with error: ${
+        request.method
+      } ${pathname} - ${totalTime.toFixed(2)}ms`,
+      {
+        error: error.message,
+        totalTime: `${totalTime.toFixed(2)}ms`,
+      }
+    );
 
     return new Response(
       JSON.stringify({
@@ -327,7 +405,13 @@ export async function handleRequest(context) {
             "An unexpected error occurred while fetching the upstream API.",
         },
       }),
-      { status: 500, headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" } }
+      {
+        status: 500,
+        headers: {
+          "Content-Type": "application/json",
+          "Access-Control-Allow-Origin": "*",
+        },
+      }
     );
   }
 }

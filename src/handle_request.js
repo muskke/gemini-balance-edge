@@ -9,6 +9,7 @@ import { PerformanceOptimizer } from "./performance_optimizer.js";
 
 // 模块级变量，用于跨请求共享状态
 let keyManager;
+const serverApiKey = process.env.GEMINI_API_KEY;
 const streamHandler = new StreamHandler();
 const monitoringSystem = new MonitoringSystem();
 let monitorEndpoint;
@@ -31,7 +32,6 @@ function initialize(env) {
     logger.info("Services already initialized.");
     return;
   }
-  const serverApiKey = env.GEMINI_API_KEY;
   logger.info(`GEMINI_API_KEY: ${serverApiKey ? 'loaded' : 'not found'}`);
   keyManager = KeyManager.getInstance(serverApiKey, logger);
   monitorEndpoint = new MonitorEndpoint(monitoringSystem, keyManager, streamHandler);
@@ -94,7 +94,7 @@ export async function handleRequest(context) {
     return monitorEndpoint.handleMonitorRequest(request);
   }
 
-  const serverAuthToken = env.AUTH_TOKEN;
+  const serverAuthToken = process.env.AUTH_TOKEN;
 
   // 以 1% 的概率异步触发健康检查，以减少高并发下的开销
   if (serverApiKey && Math.random() < 0.01) {

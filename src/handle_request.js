@@ -1,7 +1,7 @@
 // import { handleVerification } from "./verify_keys.js";
 import openai from "./openai.mjs";
 import { KeyManager } from "./utils.js";
-import { logger, redactHeaders, initializeLogger } from "./logger.mjs";
+import { logger, redactHeaders } from "./logger.mjs";
 import { StreamHandler } from "./stream_handler.js";
 import { MonitoringSystem } from "./monitoring.js";
 import { MonitorEndpoint } from "./monitor_endpoint.js";
@@ -26,7 +26,6 @@ const REUSE_PROBABILITY = 0.8; // 80% 概率优先复用
 
 // 初始化函数，确保只执行一次
 function initialize(env) {
-  initializeLogger(env); // 初始化 logger
   logger.info("Initializing services...");
   if (keyManager) {
     logger.info("Services already initialized.");

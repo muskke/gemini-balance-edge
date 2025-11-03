@@ -8,11 +8,8 @@ const LOG_LEVELS = {
   DEBUG: 3,
 };
 
-let LOG_LEVEL = LOG_LEVELS.INFO;
-
-export function initializeLogger(env) {
-  LOG_LEVEL = LOG_LEVELS[env.LOG_LEVEL?.toUpperCase()] ?? LOG_LEVELS.INFO;
-}
+const LOG_LEVEL =
+  LOG_LEVELS[process.env.LOG_LEVEL?.toUpperCase()] ?? LOG_LEVELS.INFO;
 
 const SENSITIVE_HEADER_KEYS = new Set([
   "authorization",
@@ -36,7 +33,9 @@ export function redactHeaders(input) {
       if (SENSITIVE_HEADER_KEYS.has(k.toLowerCase())) {
         const v = String(obj[k] ?? "");
         obj[k] =
-          v.length <= 8 ? "***" : `${v.slice(0, 4)}...REDACTED...${v.slice(-4)}`;
+          v.length <= 8
+            ? "***"
+            : `${v.slice(0, 4)}...REDACTED...${v.slice(-4)}`;
       }
     }
     return obj;
